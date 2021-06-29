@@ -40,6 +40,20 @@ let symbol_for_ident acc env id =
   let symbol = Env.symbol_for_global env id in
   use_of_symbol_as_simple acc symbol
 
+let register_set_of_closures_as_symbols acc set_of_closures :
+    Acc.t * Symbol.t Closure_id.Lmap.t =
+  let symbols =
+    Set_of_closures.function_decls set_of_closures
+    |> Function_declarations.funs_in_order
+    |> Closure_id.Lmap.mapi (fun closure_id _ ->
+           Symbol.create
+             (Compilation_unit.get_current_exn ())
+             (Linkage_name.create
+                (Variable.unique_name (Closure_id.unwrap closure_id))))
+  in
+  let acc = Acc.add_declared_set_of_closures ~symbols ~set_of_closures acc in
+  acc, symbols
+
 let register_const0 acc constant name =
   match Static_const.Map.find constant (Acc.shareable_constants acc) with
   | exception Not_found ->
@@ -1210,14 +1224,13 @@ let close_functions acc external_env function_declarations =
   let acc = Acc.with_free_names Name_occurrences.empty acc in
   (* CR lmaurer: funs has arbitrary order (ultimately coming from
      function_declarations) *)
-  let funs, approximations =
-    let funs, approxs =
+  let funs =
+    let funs =
       Closure_id.Map.fold
-        (fun cid (code_id, desc) (funs, approxs) ->
-          (cid, code_id) :: funs, (code_id, desc) :: approxs)
-        approximations ([], [])
+        (fun cid (code_id, _) funs -> (cid, code_id) :: funs)
+        approximations []
     in
-    Closure_id.Lmap.of_list (List.rev funs), List.rev approxs
+    Closure_id.Lmap.of_list (List.rev funs)
   in
   let function_decls = Function_declarations.create funs in
   let closure_elements =
@@ -1242,17 +1255,16 @@ let close_let_rec acc env ~function_declarations
         env)
       function_declarations env
   in
-  let closure_vars =
+  let closure_vars, ident_map =
     List.fold_left
-      (fun closure_vars decl ->
-        let closure_var =
-          VB.create
-            (Env.find_var env (Function_decl.let_rec_ident decl))
-            Name_mode.normal
-        in
+      (fun (closure_vars, ident_map) decl ->
+        let ident = Function_decl.let_rec_ident decl in
+        let closure_var = VB.create (Env.find_var env ident) Name_mode.normal in
         let closure_id = Function_decl.closure_id decl in
-        Closure_id.Map.add closure_id closure_var closure_vars)
-      Closure_id.Map.empty function_declarations
+        ( Closure_id.Map.add closure_id closure_var closure_vars,
+          Closure_id.Map.add closure_id ident ident_map ))
+      (Closure_id.Map.empty, Closure_id.Map.empty)
+      function_declarations
   in
   let acc, set_of_closures, approximations =
     close_functions acc env (Function_decls.create function_declarations)
@@ -1265,7 +1277,7 @@ let close_let_rec acc env ~function_declarations
             (Set_of_closures.function_decls set_of_closures)))
       (Closure_id.Map.keys closure_vars)
   in
-  let closure_vars =
+  let closure_vars_map =
     Closure_id.Set.fold
       (fun closure_id closure_vars ->
         let closure_var =
@@ -1276,23 +1288,42 @@ let close_let_rec acc env ~function_declarations
   in
   let closure_vars =
     List.map
-      (fun (closure_id, _) -> Closure_id.Map.find closure_id closure_vars)
+      (fun (closure_id, _) -> Closure_id.Map.find closure_id closure_vars_map)
       (Function_declarations.funs_in_order
          (Set_of_closures.function_decls set_of_closures)
       |> Closure_id.Lmap.bindings)
   in
-  let env =
-    List.fold_left2
-      (fun env var approx ->
-        Env.add_closure_approximation env (Name.var (VB.var var)) approx)
-      env closure_vars approximations
-  in
-  let acc, body = body acc env in
-  let named = Named.create_set_of_closures set_of_closures in
-  Let_with_acc.create acc
-    (Bound_pattern.set_of_closures ~closure_vars)
-    named ~body
-  |> Expr_with_acc.create_let
+  if Set_of_closures.environment_doesn't_mention_variables set_of_closures
+  then
+    let acc, symbols =
+      register_set_of_closures_as_symbols acc set_of_closures
+    in
+    let env =
+      Closure_id.Lmap.fold
+        (fun closure_id symbol env ->
+          let ident = Closure_id.Map.find closure_id ident_map in
+          let approx = Closure_id.Map.find closure_id approximations in
+          let env =
+            Env.add_simple_to_substitute env ident (Simple.symbol symbol)
+          in
+          Env.add_closure_approximation env (Name.symbol symbol) approx)
+        symbols env
+    in
+    body acc env
+  else
+    let env =
+      Closure_id.Map.fold
+        (fun closure_id var env ->
+          let approx = Closure_id.Map.find closure_id approximations in
+          Env.add_closure_approximation env (Name.var (VB.var var)) approx)
+        closure_vars_map env
+    in
+    let acc, body = body acc env in
+    let named = Named.create_set_of_closures set_of_closures in
+    Let_with_acc.create acc
+      (Bound_pattern.set_of_closures ~closure_vars)
+      named ~body
+    |> Expr_with_acc.create_let
 
 let close_program ~symbol_for_global ~big_endian ~cmx_loader ~module_ident
     ~module_block_size_in_words ~program ~prog_return_cont ~exn_continuation =
@@ -1385,6 +1416,28 @@ let close_program ~symbol_for_global ~big_endian ~cmx_loader ~module_ident
     | _ -> Value_approximation.Value_unknown
   in
   let acc, body =
+    List.fold_left
+      (fun (acc, body) (symbols, set_of_closures) ->
+        let bound_symbols =
+          Bound_symbols.singleton
+            (Bound_symbols.Pattern.set_of_closures symbols)
+        in
+        let defining_expr =
+          Named.create_static_consts
+            (Static_const_group.create
+               [ Static_const_or_code.create_static_const
+                   (Set_of_closures set_of_closures) ])
+        in
+        Let_with_acc.create acc
+          (Bound_pattern.symbols bound_symbols)
+          defining_expr ~body
+        |> Expr_with_acc.create_let)
+      (acc, body)
+      (Acc.declared_static_sets_of_closures acc)
+  in
+  let acc, body =
+    (* CR Keryan: The order of the bindings is important as blocks of code might
+       refer one another. There should be a topological sort here. *)
     Code_id.Map.fold
       (fun code_id code (acc, body) ->
         let bound_symbols =
