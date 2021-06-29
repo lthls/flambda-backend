@@ -131,6 +131,9 @@ module Acc : sig
 
   val declared_symbols : t -> (Symbol.t * Flambda.Static_const.t) list
 
+  val declared_static_sets_of_closures :
+    t -> (Symbol.t Closure_id.Lmap.t * Flambda.Set_of_closures.t) list
+
   val shareable_constants : t -> Symbol.t Flambda.Static_const.Map.t
 
   val code : t -> Flambda.Code.t Code_id.Map.t
@@ -143,6 +146,12 @@ module Acc : sig
 
   val add_declared_symbol :
     symbol:Symbol.t -> constant:Flambda.Static_const.t -> t -> t
+
+  val add_declared_set_of_closures :
+    symbols:Symbol.t Closure_id.Lmap.t ->
+    set_of_closures:Flambda.Set_of_closures.t ->
+    t ->
+    t
 
   val add_shareable_constant :
     symbol:Symbol.t -> constant:Flambda.Static_const.t -> t -> t
