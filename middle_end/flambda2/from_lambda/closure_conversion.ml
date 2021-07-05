@@ -1108,41 +1108,33 @@ let close_program ~backend ~module_ident ~module_block_size_in_words ~program
       ~handler_params:load_fields_handler_param ~handler:load_fields_body ~body
       ~is_exn_handler:false
   in
-  let acc, body =
+  let bound_set_of_closures_symbols, set_of_closures_consts =
     List.fold_left
-      (fun (acc, body) (symbols, set_of_closures) ->
-        let bound_symbols =
-          Bound_symbols.singleton
-            (Bound_symbols.Pattern.set_of_closures symbols)
-        in
-        let defining_expr =
-          Named.create_static_consts
-            (Static_const.Group.create [Set_of_closures set_of_closures])
-        in
-        Let_with_acc.create acc
-          (Bindable_let_bound.symbols bound_symbols Syntactic)
-          defining_expr ~body ~free_names_of_body:Unknown
-        |> Expr_with_acc.create_let)
-      (acc, body)
+      (fun (bound_symbols, consts) (symbols, set_of_closures) ->
+        let symbols = Bound_symbols.Pattern.set_of_closures symbols in
+        let const : Static_const.t = Set_of_closures set_of_closures in
+        symbols :: bound_symbols, const :: consts)
+      ([], [])
       (Acc.declared_static_sets_of_closures acc)
   in
-  let acc, body =
-    (* CR Keryan: The order of the bindings is important as blocks of code might
-       refer one another. There should be a topological sort here. *)
+  let bound_symbols, consts =
     Code_id.Map.fold
-      (fun code_id code (acc, body) ->
-        let bound_symbols =
-          Bound_symbols.singleton (Bound_symbols.Pattern.code code_id)
-        in
-        let static_const : Static_const.t = Code code in
-        let defining_expr =
-          Static_const.Group.create [static_const] |> Named.create_static_consts
-        in
-        Let_with_acc.create acc
-          (Bound_pattern.symbols bound_symbols)
-          defining_expr ~body
-        |> Expr_with_acc.create_let)
-      (Acc.code acc) (acc, body)
+      (fun code_id code (bound_symbols, consts) ->
+        let symbol = Bound_symbols.Pattern.code code_id in
+        let const : Static_const.t = Code code in
+        symbol :: bound_symbols, const :: consts)
+      (Acc.code acc)
+      (bound_set_of_closures_symbols, set_of_closures_consts)
+  in
+  let acc, body =
+    let bound_symbols = Bound_symbols.create bound_symbols in
+    let defining_expr =
+      Named.create_static_consts (Static_const.Group.create consts)
+    in
+    Let_with_acc.create acc
+      (Bound_pattern.symbols bound_symbols)
+      defining_expr ~body
+    |> Expr_with_acc.create_let
   in
   (* We must make sure there is always an outer [Let_symbol] binding so that
      lifted constants not in the scope of any other [Let_symbol] binding get put
