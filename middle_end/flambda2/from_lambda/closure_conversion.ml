@@ -40,19 +40,23 @@ let symbol_for_ident acc env id =
   let symbol = Env.symbol_for_global env id in
   use_of_symbol_as_simple acc symbol
 
-let register_set_of_closures_as_symbols acc set_of_closures :
+let register_set_of_closures_as_symbols acc set_of_closures approximations :
     Acc.t * Symbol.t Closure_id.Lmap.t =
   let symbols =
     Set_of_closures.function_decls set_of_closures
     |> Function_declarations.funs_in_order
     |> Closure_id.Lmap.mapi (fun closure_id _ ->
-           Symbol.create
-             (Compilation_unit.get_current_exn ())
-             (Linkage_name.create
-                (Variable.unique_name (Closure_id.unwrap closure_id))))
+           let symbol =
+             Symbol.create
+               (Compilation_unit.get_current_exn ())
+               (Linkage_name.create
+                  (Variable.unique_name (Closure_id.unwrap closure_id)))
+           in
+           let approx = Closure_id.Map.find closure_id approximations in
+           symbol, approx)
   in
   let acc = Acc.add_declared_set_of_closures ~symbols ~set_of_closures acc in
-  acc, symbols
+  acc, Closure_id.Lmap.map fst symbols
 
 let register_const0 acc constant name =
   match Static_const.Map.find constant (Acc.shareable_constants acc) with
@@ -1269,6 +1273,12 @@ let close_let_rec acc env ~function_declarations
   let acc, set_of_closures, approximations =
     close_functions acc env (Function_decls.create function_declarations)
   in
+  let approximations =
+    Closure_id.Map.map
+      (fun (code_id, code) ->
+        Value_approximation.Closure_approximation (code_id, code))
+      approximations
+  in
   (* CR mshinwell: We should maybe have something more elegant here *)
   let generated_closures =
     Closure_id.Set.diff
@@ -1296,7 +1306,7 @@ let close_let_rec acc env ~function_declarations
   if Set_of_closures.environment_doesn't_mention_variables set_of_closures
   then
     let acc, symbols =
-      register_set_of_closures_as_symbols acc set_of_closures
+      register_set_of_closures_as_symbols acc set_of_closures approximations
     in
     let env =
       Closure_id.Lmap.fold
@@ -1306,7 +1316,7 @@ let close_let_rec acc env ~function_declarations
           let env =
             Env.add_simple_to_substitute env ident (Simple.symbol symbol)
           in
-          Env.add_closure_approximation env (Name.symbol symbol) approx)
+          Env.add_value_approximation env (Name.symbol symbol) approx)
         symbols env
     in
     body acc env
@@ -1315,7 +1325,7 @@ let close_let_rec acc env ~function_declarations
       Closure_id.Map.fold
         (fun closure_id var env ->
           let approx = Closure_id.Map.find closure_id approximations in
-          Env.add_closure_approximation env (Name.var (VB.var var)) approx)
+          Env.add_value_approximation env (Name.var (VB.var var)) approx)
         closure_vars_map env
     in
     let acc, body = body acc env in
@@ -1415,43 +1425,41 @@ let close_program ~symbol_for_global ~big_endian ~cmx_loader ~module_ident
     | Some [approx] -> approx
     | _ -> Value_approximation.Value_unknown
   in
-  let acc, body =
+  let bound_set_of_closures_symbols, set_of_closures_consts =
     List.fold_left
-      (fun (acc, body) (symbols, set_of_closures) ->
-        let bound_symbols =
-          Bound_symbols.singleton
-            (Bound_symbols.Pattern.set_of_closures symbols)
+      (fun (bound_symbols, consts) (symbols, set_of_closures) ->
+        let symbols =
+          Bound_symbols.Pattern.set_of_closures
+            (Closure_id.Lmap.map fst symbols)
         in
-        let defining_expr =
-          Named.create_static_consts
-            (Static_const_group.create
-               [ Static_const_or_code.create_static_const
-                   (Set_of_closures set_of_closures) ])
+        let const : Static_const_or_code.t =
+          Static_const_or_code.create_static_const
+            (Set_of_closures set_of_closures)
         in
-        Let_with_acc.create acc
-          (Bound_pattern.symbols bound_symbols)
-          defining_expr ~body
-        |> Expr_with_acc.create_let)
-      (acc, body)
+        symbols :: bound_symbols, const :: consts)
+      ([], [])
       (Acc.declared_static_sets_of_closures acc)
   in
-  let acc, body =
-    (* CR Keryan: The order of the bindings is important as blocks of code might
-       refer one another. There should be a topological sort here. *)
+  let bound_symbols, consts =
     Code_id.Map.fold
-      (fun code_id code (acc, body) ->
-        let bound_symbols =
-          Bound_symbols.singleton (Bound_symbols.Pattern.code code_id)
+      (fun code_id code (bound_symbols, consts) ->
+        let symbol = Bound_symbols.Pattern.code code_id in
+        let const : Static_const_or_code.t =
+          Static_const_or_code.create_code code
         in
-        let static_const = Static_const_or_code.create_code code in
-        let defining_expr =
-          Static_const_group.create [static_const] |> Named.create_static_consts
-        in
-        Let_with_acc.create acc
-          (Bound_pattern.symbols bound_symbols)
-          defining_expr ~body
-        |> Expr_with_acc.create_let)
-      (Acc.code acc) (acc, body)
+        symbol :: bound_symbols, const :: consts)
+      (Acc.code acc)
+      (bound_set_of_closures_symbols, set_of_closures_consts)
+  in
+  let acc, body =
+    let bound_symbols = Bound_symbols.create bound_symbols in
+    let defining_expr =
+      Named.create_static_consts (Static_const_group.create consts)
+    in
+    Let_with_acc.create acc
+      (Bound_pattern.symbols bound_symbols)
+      defining_expr ~body
+    |> Expr_with_acc.create_let
   in
   (* We must make sure there is always an outer [Let_symbol] binding so that
      lifted constants not in the scope of any other [Let_symbol] binding get put
@@ -1469,13 +1477,20 @@ let close_program ~symbol_for_global ~big_endian ~cmx_loader ~module_ident
       acc
   in
   let symbols_approximations =
+    let symbol_approxs =
+      List.fold_left
+        (fun sa (symbol, _) ->
+          Symbol.Map.add symbol Value_approximation.Value_unknown sa)
+        (Symbol.Map.singleton module_symbol module_block_approximation)
+        (Acc.declared_symbols acc)
+    in
     List.fold_left
-      (fun sa (symbol, _) ->
-        (* CR Keryan: for now only constants are lifted. It will need refinement
-           with the lifting of closed functions *)
-        Symbol.Map.add symbol Value_approximation.Value_unknown sa)
-      (Symbol.Map.singleton module_symbol module_block_approximation)
-      (Acc.declared_symbols acc)
+      (fun sa (closure_map, _) ->
+        Closure_id.Lmap.fold
+          (fun _ (symbol, approx) sa -> Symbol.Map.add symbol approx sa)
+          closure_map sa)
+      symbol_approxs
+      (Acc.declared_static_sets_of_closures acc)
   in
   let acc, body =
     List.fold_left
