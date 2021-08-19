@@ -64,33 +64,63 @@ module Make (Index : Product_intf.Index) = struct
   let meet env
         { components_by_index = components_by_index1; kind = kind1; }
         { components_by_index = components_by_index2; kind = kind2; }
-    : _ Or_bottom.t =
+    : _ Meet_result.t =
     if not (Flambda_kind.equal kind1 kind2) then begin
       Misc.fatal_errorf "Product.meet between mismatching kinds %a and %a@."
         Flambda_kind.print kind1 Flambda_kind.print kind2
     end;
     let any_bottom = ref false in
+    let all_left = ref true in
+    let all_right = ref true in
     let env_extension = ref (TEE.empty ()) in
     let components_by_index =
-      Index.Map.union (fun _index ty1 ty2 ->
-          match Type_grammar.meet env ty1 ty2 with
-          | Ok (ty, env_extension') ->
-            begin match TEE.meet env !env_extension env_extension' with
+      Index.Map.merge (fun _index ty1_opt ty2_opt ->
+          match ty1_opt, ty2_opt with
+          | None, None -> assert false
+          | Some ty1, None ->
+            all_right := false;
+            Some ty1
+          | None, Some ty2 ->
+            all_left := false;
+            Some ty2
+          | Some ty1, Some ty2 ->
+            begin match Type_grammar.meet env ty1 ty2 with
+            | Ok (meet_result, env_extension') ->
+              begin match TEE.meet env !env_extension env_extension' with
+              | Bottom ->
+                any_bottom := true;
+                Some (Type_grammar.bottom_like ty1)
+              | Ok extension ->
+                env_extension := extension;
+                begin match meet_result with
+                | Left_input ->
+                  all_right := false;
+                  Some ty1
+                | Right_input ->
+                  all_left := false;
+                  Some ty2
+                | Both_inputs ->
+                  Some ty1
+                | New_result ty ->
+                  all_left := false;
+                  all_right := false;
+                  Some ty
+                end
+              end
             | Bottom ->
               any_bottom := true;
               Some (Type_grammar.bottom_like ty1)
-            | Ok extension ->
-              env_extension := extension;
-              Some ty
-            end
-          | Bottom ->
-            any_bottom := true;
-            Some (Type_grammar.bottom_like ty1))
+            end)
         components_by_index1
         components_by_index2
     in
     if !any_bottom then Bottom
-    else Ok ({ components_by_index; kind = kind1; }, !env_extension)
+    else match !all_left, !all_right with
+      | true, true -> Ok (Both_inputs, !env_extension)
+      | true, false -> Ok (Left_input, !env_extension)
+      | false, true -> Ok (Right_input, !env_extension)
+      | false, false ->
+        Ok (New_result { components_by_index; kind = kind1; }, !env_extension)
 
   let join env
         { components_by_index = components_by_index1; kind = kind1; }
@@ -208,7 +238,7 @@ module Int_indexed = struct
     if Array.length t.fields <= index then Unknown
     else Known t.fields.(index)
 
-  let meet env t1 t2 : _ Or_bottom.t =
+  let meet env t1 t2 : _ Meet_result.t =
     if not (Flambda_kind.equal t1.kind t2.kind) then begin
       Misc.fatal_errorf "Product.Int_indexed.meet between mismatching \
                          kinds %a and %a@."
@@ -217,6 +247,8 @@ module Int_indexed = struct
     let fields1 = t1.fields in
     let fields2 = t2.fields in
     let any_bottom = ref false in
+    let all_left = ref true in
+    let all_right = ref true in
     let env_extension = ref (TEE.empty ()) in
     let length = max (Array.length fields1) (Array.length fields2) in
     let fields =
@@ -229,17 +261,35 @@ module Int_indexed = struct
         in
         match get_opt fields1, get_opt fields2 with
         | None, None -> assert false
-        | Some t, None | None, Some t -> t
+        | Some t, None ->
+          all_right := false;
+          t
+        | None, Some t ->
+          all_left := false;
+          t
         | Some ty1, Some ty2 ->
           begin match Type_grammar.meet env ty1 ty2 with
-          | Ok (ty, env_extension') ->
+          | Ok (meet_result, env_extension') ->
             begin match TEE.meet env !env_extension env_extension' with
             | Bottom ->
               any_bottom := true;
               Type_grammar.bottom_like ty1
             | Ok extension ->
               env_extension := extension;
-              ty
+              begin match meet_result with
+              | Left_input ->
+                all_right := false;
+                ty1
+              | Right_input ->
+                all_left := false;
+                ty2
+              | Both_inputs ->
+                ty1
+              | New_result ty ->
+                all_left := false;
+                all_right := false;
+                ty
+              end
             end
           | Bottom ->
             any_bottom := true;
@@ -247,7 +297,12 @@ module Int_indexed = struct
           end)
     in
     if !any_bottom then Bottom
-    else Ok ({ fields; kind = t1.kind; }, !env_extension)
+    else match !all_left, !all_right with
+      | true, true -> Ok (Both_inputs, !env_extension)
+      | true, false -> Ok (Left_input, !env_extension)
+      | false, true -> Ok (Right_input, !env_extension)
+      | false, false ->
+        Ok (New_result { fields; kind = t1.kind; }, !env_extension)
 
   let join env t1 t2 =
     if not (Flambda_kind.equal t1.kind t2.kind) then begin

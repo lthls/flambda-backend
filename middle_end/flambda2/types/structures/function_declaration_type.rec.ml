@@ -143,12 +143,13 @@ let apply_renaming (t : t) renaming : t =
     Ok (Non_inlinable (Non_inlinable.apply_renaming non_inlinable renaming))
 
 let meet (env : Meet_env.t) (t1 : t) (t2 : t)
-      : (t * TEE.t) Or_bottom.t =
+      : (t, TEE.t) Meet_result.t =
   match t1, t2 with
   (* CR mshinwell: Try to factor out "Or_unknown_or_bottom" handling from here
      and elsewhere *)
-  | Bottom, _ | _, Bottom -> Ok (Bottom, TEE.empty ())
-  | Unknown, t | t, Unknown -> Ok (t, TEE.empty ())
+  | Bottom, Bottom -> Ok (Both_inputs, TEE.empty ())
+  | Bottom, _ | _, Unknown -> Ok (Left_input, TEE.empty ())
+  | _, Bottom | Unknown, _ -> Ok (Right_input, TEE.empty ())
   | Ok (Non_inlinable {
       code_id = code_id1;
     }), Ok (Non_inlinable {
@@ -157,11 +158,16 @@ let meet (env : Meet_env.t) (t1 : t) (t2 : t)
     let typing_env = Meet_env.env env in
     let target_code_age_rel = TE.code_age_relation typing_env in
     let resolver = TE.code_age_relation_resolver typing_env in
-    let check_other_things_and_return code_id : (t * TEE.t) Or_bottom.t =
-      Ok (Ok (Non_inlinable {
+    let check_other_things_and_return code_id : (t, TEE.t) Meet_result.t =
+      let meet_result : t Meet_result.return_value =
+        if Code_id.equal code_id1 code_id2 then Both_inputs
+        else if Code_id.equal code_id code_id1 then Left_input
+        else if Code_id.equal code_id code_id2 then Right_input
+        else New_result (Ok (Non_inlinable {
           code_id;
-        }),
-        TEE.empty ())
+        }))
+      in
+      Ok (meet_result, TEE.empty ())
     in
     begin match
       Code_age_relation.meet target_code_age_rel ~resolver code_id1 code_id2
@@ -169,14 +175,12 @@ let meet (env : Meet_env.t) (t1 : t) (t2 : t)
     | Ok code_id -> check_other_things_and_return code_id
     | Bottom -> Bottom
     end
-  | Ok (Non_inlinable _), Ok (Inlinable _)
   | Ok (Inlinable _), Ok (Non_inlinable _) ->
-    (* CR mshinwell: This should presumably return [Non_inlinable] if
-       the arities match. *)
-    (* CR vlaviron: The above comment was from before meet and join were split.
-       Now that we know we're in meet, we can actually keep either of them
-       (the inlinable one seems better) *)
-    Ok (Unknown, TEE.empty ())
+    (* We want a guarantee that we're always more precise,
+       so we can't return Unknown anymore *)
+    Ok (Left_input, TEE.empty ())
+  | Ok (Non_inlinable _), Ok (Inlinable _) ->
+    Ok (Right_input, TEE.empty ())
   | Ok (Inlinable {
       code_id = code_id1;
       rec_info = rec_info1;
@@ -190,27 +194,37 @@ let meet (env : Meet_env.t) (t1 : t) (t2 : t)
     let typing_env = Meet_env.env env in
     let target_code_age_rel = TE.code_age_relation typing_env in
     let resolver = TE.code_age_relation_resolver typing_env in
-    let check_other_things_and_return code_id rec_info extension
-      : (t * TEE.t) Or_bottom.t =
-      match TE.find_code typing_env code_id with
-      | None -> Ok (Ok (Non_inlinable { code_id; }), extension)
-      | Some code ->
-        let t, _inlining_decision =
-          create ~code ~rec_info
+    let check_other_things_and_return code_id
+      : (t, TEE.t) Meet_result.t =
+      let code_id_result : Code_id.t Meet_result.return_value =
+        if Code_id.equal code_id1 code_id2 then Both_inputs
+        else if Code_id.equal code_id code_id1 then Left_input
+        else if Code_id.equal code_id code_id2 then Right_input
+        else New_result code_id
+      in
+      begin match Type_grammar.meet env rec_info1 rec_info2 with
+      | Bottom -> Bottom
+      | Ok (rec_info_result, extension) ->
+        let result =
+          Meet_result.combine code_id_result code_id1 code_id2
+            rec_info_result rec_info1 rec_info2
+            (fun code_id rec_info : t ->
+               match TE.find_code typing_env code_id with
+               | None -> Ok (Non_inlinable { code_id; })
+               | Some code ->
+                 let t, _inlining_decision =
+                   create ~code ~rec_info
+                 in
+                 t)
         in
-        Ok (t, extension)
+        Ok (result, extension)
+      end
     in
     begin match
       Code_age_relation.meet target_code_age_rel ~resolver code_id1 code_id2
     with
     | Ok code_id ->
-      begin match
-        Type_grammar.meet env rec_info1 rec_info2
-      with
-      | Ok (rec_info, extension) ->
-        check_other_things_and_return code_id rec_info extension
-      | Bottom -> Bottom
-      end
+      check_other_things_and_return code_id
     | Bottom -> Bottom
     end
 

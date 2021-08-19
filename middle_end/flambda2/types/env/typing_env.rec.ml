@@ -784,8 +784,17 @@ let mem ?min_name_mode t name =
     ~symbol:(fun sym ->
       (* CR mshinwell: This might not take account of symbols in missing
          .cmx files *)
-      Symbol.Set.mem sym t.defined_symbols
-        || Name.Set.mem name (t.get_imported_names ()))
+      let comp_unit = Symbol.compilation_unit sym in
+      if Compilation_unit.equal comp_unit (Compilation_unit.get_current_exn ())
+      then
+        Symbol.Set.mem sym t.defined_symbols
+      else
+        match (resolver t) comp_unit with
+        | None ->
+          (* The cmx is unavailable, but the symbol is valid *)
+          true
+        | Some _ ->
+          Name.Set.mem name (t.get_imported_names ()))
 
 let mem_simple ?min_name_mode t simple =
   Simple.pattern_match simple
@@ -947,18 +956,22 @@ let rec add_equation0 (t:t) name ty =
       | exception Not_found -> true
       | _ -> false
     in
-    if is_concrete then begin
-      let canonical =
-        Aliases.get_canonical_ignoring_name_mode (aliases t) name
-        |> Simple.without_coercion
-      in
-      if not (Simple.equal canonical (Simple.name name)) then begin
-        Misc.fatal_errorf "Trying to add equation giving concrete type on %a \
-            which is not canonical (its canonical is %a): %a"
-          Name.print name
-          Simple.print canonical
-          Type_grammar.print ty
-      end
+    let canonical =
+      Aliases.get_canonical_ignoring_name_mode (aliases t) name
+      |> Simple.without_coercion
+    in
+    if is_concrete && not (Simple.equal canonical (Simple.name name)) then begin
+      Misc.fatal_errorf "Trying to add equation giving concrete type on %a \
+          which is not canonical (its canonical is %a): %a"
+        Name.print name
+        Simple.print canonical
+        Type_grammar.print ty
+    end;
+    if not is_concrete && Simple.equal canonical (Simple.name name) then begin
+      Misc.fatal_errorf "Trying to add equation giving alias type on %a \
+          which is canonical: %a"
+        Name.print name
+        Type_grammar.print ty
     end
   end;
   invariant_for_new_equation t name ty;
@@ -1110,14 +1123,14 @@ and add_equation t name ty =
   let ty, t =
     let [@inline always] name eqn_name ~coercion =
       assert (Coercion.is_id coercion); (* true by definition *)
-      if Name.equal name eqn_name then ty, t
-      else
-        let env = Meet_env.create t in
-        let existing_ty = find t eqn_name (Some (Type_grammar.kind ty)) in
-        match Type_grammar.meet env ty existing_ty with
-        | Bottom -> Type_grammar.bottom_like ty, t
-        | Ok (meet_ty, env_extension) ->
-          meet_ty, add_env_extension t env_extension
+      let env = Meet_env.create t in
+      let existing_ty = find t eqn_name (Some (Type_grammar.kind ty)) in
+      match Type_grammar.meet env ty existing_ty with
+      | Bottom ->
+        Type_grammar.bottom_like ty, t
+      | Ok (meet_result, env_extension) ->
+        let meet_ty = Meet_result.extract_value meet_result ty existing_ty in
+        meet_ty, add_env_extension t env_extension
     in
     Simple.pattern_match bare_lhs ~name ~const:(fun _ -> ty, t)
   in
@@ -1207,8 +1220,24 @@ let meet_equations_on_params t ~params ~param_types =
       let existing_type = find t name (Some kind) in
       let env = Meet_env.create t in
       match Type_grammar.meet env existing_type param_type with
-      | Bottom -> add_equation t name (Type_grammar.bottom kind)
-      | Ok (meet_ty, env_extension) ->
+      | Bottom ->
+        (* Ideally we should adapt the type of this function so
+           that the caller can handle this case.
+           In practice, this would likely mean treating the
+           corresponding continuation handler as unreachable. *)
+        (* Misc.fatal_errorf
+         *   "Bottom equation added on parameter:@.\
+         *    Parameter:@ %a@.\
+         *    Parameter type:@ %a@.\
+         *    Typing env:@ %a"
+         *   Kinded_parameter.print param
+         *   Type_grammar.print param_type
+         *   print t *)
+        add_equation t name (Type_grammar.bottom kind)
+      | Ok (meet_result, env_extension) ->
+        let meet_ty =
+          Meet_result.extract_value meet_result existing_type param_type
+        in
         let t = add_equation t name meet_ty in
         add_env_extension t env_extension)
     t
