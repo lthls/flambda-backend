@@ -1460,19 +1460,23 @@ let close_program ~symbol_for_global ~big_endian ~cmx_loader ~module_ident
     | _ -> Value_approximation.Value_unknown
   in
   let bound_set_of_closures_symbols, set_of_closures_consts =
-    List.fold_left
-      (fun (bound_symbols, consts) (symbols, set_of_closures) ->
-        let symbols =
-          Bound_symbols.Pattern.set_of_closures
-            (Closure_id.Lmap.map fst symbols)
-        in
-        let const : Static_const_or_code.t =
-          Static_const_or_code.create_static_const
-            (Set_of_closures set_of_closures)
-        in
-        symbols :: bound_symbols, const :: consts)
-      ([], [])
-      (Acc.declared_static_sets_of_closures acc)
+    if Flambda_features.classic_mode ()
+    then
+      List.fold_left
+        (fun (bound_symbols, consts) (symbols, set_of_closures) ->
+          let symbols =
+            Bound_symbols.Pattern.set_of_closures
+              (Closure_id.Lmap.map fst symbols)
+          in
+          let const : Static_const_or_code.t =
+            Static_const_or_code.create_static_const
+              (Set_of_closures set_of_closures)
+          in
+          symbols :: bound_symbols, const :: consts)
+        ([], [])
+        (Acc.declared_static_sets_of_closures acc)
+    else [], []
+    (* No closure symbols without lifting *)
   in
   let bound_symbols, consts =
     Code_id.Map.fold
@@ -1486,14 +1490,28 @@ let close_program ~symbol_for_global ~big_endian ~cmx_loader ~module_ident
       (bound_set_of_closures_symbols, set_of_closures_consts)
   in
   let acc, body =
-    let bound_symbols = Bound_symbols.create bound_symbols in
-    let defining_expr =
-      Named.create_static_consts (Static_const_group.create consts)
-    in
-    Let_with_acc.create acc
-      (Bound_pattern.symbols bound_symbols)
-      defining_expr ~body
-    |> Expr_with_acc.create_let
+    if Flambda_features.classic_mode ()
+    then
+      let bound_symbols = Bound_symbols.create bound_symbols in
+      let defining_expr =
+        Named.create_static_consts (Static_const_group.create consts)
+      in
+      Let_with_acc.create acc
+        (Bound_pattern.symbols bound_symbols)
+        defining_expr ~body
+      |> Expr_with_acc.create_let
+    else
+      List.fold_left2
+        (fun (acc, body) bound_symbol const ->
+          let bound_symbols = Bound_symbols.singleton bound_symbol in
+          let defining_expr =
+            Named.create_static_consts (Static_const_group.create [const])
+          in
+          Let_with_acc.create acc
+            (Bound_pattern.symbols bound_symbols)
+            defining_expr ~body
+          |> Expr_with_acc.create_let)
+        (acc, body) bound_symbols consts
   in
   (* We must make sure there is always an outer [Let_symbol] binding so that
      lifted constants not in the scope of any other [Let_symbol] binding get put
