@@ -18,7 +18,7 @@
 
 open! Flambda.Import
 
-type t = private
+type t =
   | Never_inline_attribute
   | Function_body_too_large of Code_size.t
   | Stub

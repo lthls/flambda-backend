@@ -21,7 +21,7 @@ open! Flambda.Import
 (* CR-someday mshinwell: Maybe have two types, one giving the reasons why
    something can be inlined, and one giving the reasons why something cannot be
    inlined. *)
-type t = private
+type t =
   | Environment_says_never_inline
   | Unrolling_depth_exceeded
   | Max_inlining_depth_exceeded

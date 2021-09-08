@@ -81,6 +81,10 @@ let middle_end0 ppf ~prefixname ~backend ~filename ~module_ident
               ~module_block_size_in_words module_initializer)
       in
       print_rawflambda ppf flambda;
+      (if Flambda_features.inlining_report ()
+      then
+        let output_prefix = prefixname ^ ".cps_conv" in
+        Inlining_report.output_then_forget_decisions ~output_prefix);
       if Flambda_features.classic_mode ()
       then { cmx = None; unit = flambda; all_code = code }
       else
