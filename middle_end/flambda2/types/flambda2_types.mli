@@ -186,6 +186,9 @@ module Typing_env : sig
 
     val create : typing_env -> t
 
+    val create_from_closure_conversion_approx :
+      'a Value_approximation.t Symbol.Map.t -> t
+
     val print : Format.formatter -> t -> unit
 
     val to_typing_env :
@@ -647,3 +650,5 @@ val reify :
   min_name_mode:Name_mode.t ->
   t ->
   reification_result
+
+val extract_symbol_approx : Typing_env.t -> Symbol.t -> 'code Code_id.Map.t -> 'code Value_approximation.t
