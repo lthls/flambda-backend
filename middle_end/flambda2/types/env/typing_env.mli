@@ -177,6 +177,9 @@ module Serializable : sig
 
   val create : typing_env -> t
 
+  val create_from_closure_conversion_approx :
+    'a Value_approximation.t Symbol.Map.t -> t
+
   val print : Format.formatter -> t -> unit
 
   val to_typing_env :
