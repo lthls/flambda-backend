@@ -753,14 +753,14 @@ let close_let acc env id user_visible defining_expr
                expected in [Closure_conversion]: %a"
               Named.print defining_expr
           | Block_approximation approx ->
-            let approx : Env.value_approximation =
+            let approx : Value_approximation.t =
               Simple.pattern_match field
                 ~const:(fun const ->
                   match Reg_width_things.Const.descr const with
                   | Tagged_immediate i ->
                     approx.(Targetint_31_63.(Imm.to_int (to_targetint i)))
-                  | _ -> Env.Value_unknown)
-                ~name:(fun _ ~coercion:_ -> Env.Value_unknown)
+                  | _ -> Value_approximation.Value_unknown)
+                ~name:(fun _ ~coercion:_ -> Value_approximation.Value_unknown)
             in
             Env.add_value_approximation body_env (Name.var var) approx
         end

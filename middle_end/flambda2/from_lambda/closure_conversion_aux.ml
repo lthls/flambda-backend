@@ -89,11 +89,6 @@ module IR = struct
 end
 
 module Env = struct
-  type value_approximation =
-    | Value_unknown
-    | Closure_approximation of Code_id.t * Flambda.Code.t option
-    | Block_approximation of value_approximation array
-
   type t =
     { variables : Variable.t Ident.Map.t;
       globals : Symbol.t Numeric_types.Int.Map.t;
@@ -102,7 +97,7 @@ module Env = struct
       current_unit_id : Ident.t;
       current_depth : Variable.t option;
       symbol_for_global' : Ident.t -> Symbol.t;
-      value_approximations : value_approximation Name.Map.t
+      value_approximations : Value_approximation.t Name.Map.t
     }
 
   let backend t = t.backend
@@ -228,7 +223,7 @@ module Env = struct
     Ident.Map.find id t.simples_to_substitute
 
   let add_value_approximation t name approx =
-    if approx = Value_unknown
+    if Value_approximation.is_unknown approx
     then t
     else
       { t with
@@ -239,16 +234,16 @@ module Env = struct
     add_value_approximation t name (Closure_approximation (code_id, approx))
 
   let add_block_approximation t name approxs =
-    if Array.for_all (( = ) Value_unknown) approxs
+    if Array.for_all Value_approximation.is_unknown approxs
     then t
     else add_value_approximation t name (Block_approximation approxs)
 
   let find_value_approximation t simple =
     Simple.pattern_match simple
-      ~const:(fun _ -> Value_unknown)
+      ~const:(fun _ -> Value_approximation.Value_unknown)
       ~name:(fun name ~coercion:_ ->
         try Name.Map.find name t.value_approximations
-        with Not_found -> Value_unknown)
+        with Not_found -> Value_approximation.Value_unknown)
 
   let add_approximation_alias t name alias =
     match find_value_approximation t (Simple.name name) with
@@ -258,7 +253,7 @@ end
 
 module Acc = struct
   type continuation_application =
-    | Trackable_arguments of Env.value_approximation list
+    | Trackable_arguments of Value_approximation.t list
     | Untrackable
 
   type t =
