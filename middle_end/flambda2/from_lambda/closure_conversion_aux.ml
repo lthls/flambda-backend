@@ -89,19 +89,9 @@ module IR = struct
 end
 
 module Env = struct
-  type function_description =
-    { fd_code : Flambda.Code.t;
-      fd_ret_cont : Continuation.t;
-      fd_exn_cont : Exn_continuation.t;
-      fd_params : Kinded_parameter.t list;
-      fd_body : Flambda.Expr.t;
-      fd_closure : Variable.t;
-      fd_depth : Variable.t
-    }
-
   type value_approximation =
     | Value_unknown
-    | Closure_approximation of Code_id.t * function_description option
+    | Closure_approximation of Code_id.t * Flambda.Code.t option
     | Block_approximation of value_approximation array
 
   type t =

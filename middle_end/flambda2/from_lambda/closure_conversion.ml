@@ -171,7 +171,7 @@ let find_simples acc env ids =
 module Inlining = struct
   type inlinable_result =
     | Not_inlinable
-    | Inlinable of Env.function_description
+    | Inlinable of Flambda.Code.t
 
   let threshold () =
     let inline_threshold =
@@ -195,8 +195,12 @@ module Inlining = struct
            (Inlining_report.Non_inlinable_function
               { code_id = Code_id.export code_id }));
       Not_inlinable
-    | Closure_approximation (code_id, Some approx) ->
-      if List.length approx.fd_params > List.length (Apply_expr.args apply)
+    | Closure_approximation (code_id, Some code) ->
+      let fun_params_length =
+        Code.params_arity code |> Flambda_arity.With_subkinds.to_arity
+        |> Flambda_arity.length
+      in
+      if fun_params_length > List.length (Apply_expr.args apply)
       then begin
         Inlining_report.record_decision ~dbg
           (At_call_site
@@ -211,9 +215,9 @@ module Inlining = struct
           | Never_inline ->
             Call_site_inlining_decision.Never_inline_attribute, Not_inlinable
           | Always_inline | Hint_inline ->
-            Call_site_inlining_decision.Attribute_always, Inlinable approx
+            Call_site_inlining_decision.Attribute_always, Inlinable code
           | Default_inline ->
-            Call_site_inlining_decision.Definition_says_inline, Inlinable approx
+            Call_site_inlining_decision.Definition_says_inline, Inlinable code
           | Unroll _ -> assert false
         in
         Inlining_report.record_decision ~dbg
@@ -344,15 +348,14 @@ module Inlining = struct
       ~handler_params:wrapper_handler_params ~handler:wrapper_handler
       ~body:body_with_push ~is_exn_handler:true
 
-  let inline acc ~apply ~apply_depth ~func_desc:Env.{ fd_code; _ } =
+  let inline acc ~apply ~apply_depth ~func_desc:code =
     let callee = Apply.callee apply in
     let args = Apply.args apply in
     let apply_return_continuation = Apply.continuation apply in
     let apply_exn_continuation = Apply.exn_continuation apply in
     let params_and_body =
       Code.params_and_body_must_be_present
-        ~error_context:"Code needs params_and_body in [Closure_conversion]"
-        fd_code
+        ~error_context:"Code needs params_and_body in [Closure_conversion]" code
     in
     Function_params_and_body.pattern_match params_and_body
       ~f:(fun
@@ -399,8 +402,7 @@ module Inlining = struct
           | extra_args ->
             wrap_inlined_body_for_exn_support acc ~extra_args
               ~apply_exn_continuation ~apply_return_continuation
-              ~result_arity:(Code.result_arity fd_code)
-              ~make_inlined_body
+              ~result_arity:(Code.result_arity code) ~make_inlined_body
         in
         match remain_args with
         | [] -> body apply_return_continuation acc
@@ -1180,23 +1182,12 @@ let close_one_function acc ~external_env ~by_closure_id decl
   in
   let code_size = Cost_metrics.size cost_metrics in
   let inline_threshold = Inlining.threshold () in
-  let description =
-    Env.
-      { fd_code = code;
-        fd_ret_cont = return_continuation;
-        fd_exn_cont = exn_continuation;
-        fd_params = params;
-        fd_body = body;
-        fd_closure = my_closure;
-        fd_depth = my_depth
-      }
-  in
   let inline_decision, approx =
     match inline with
     | Never_inline ->
       Function_decl_inlining_decision.Never_inline_attribute, None
     | Always_inline | Hint_inline ->
-      Function_decl_inlining_decision.Attribute_inline, Some description
+      Function_decl_inlining_decision.Attribute_inline, Some code
     | _ ->
       if Code_size.to_int code_size <= inline_threshold
       then
@@ -1204,7 +1195,7 @@ let close_one_function acc ~external_env ~by_closure_id decl
             { size = code_size;
               small_function_size = Code_size.of_int inline_threshold
             },
-          Some description )
+          Some code )
       else
         ( Function_decl_inlining_decision.Function_body_too_large
             (Code_size.of_int inline_threshold),
