@@ -94,9 +94,10 @@ let middle_end0 ppf ~prefixname ~backend ~filename ~module_ident
           else flambda
         in
         let round = 0 in
+        let cmx_loader = Flambda_cmx.create_loader backend in
         let new_flambda =
           Profile.record_call ~accumulate:true "simplify" (fun () ->
-              Simplify.run ~backend ~round flambda)
+              Simplify.run ~backend ~cmx_loader ~round flambda)
         in
         (if Flambda_features.inlining_report ()
         then
