@@ -613,7 +613,7 @@ type simplify_set_of_closures0_result =
 
 (* CR mshinwell: Take [dacc] from [C.dacc_prior_to_sets]? *)
 let simplify_set_of_closures0 dacc context set_of_closures ~closure_bound_names
-    ~closure_bound_names_inside ~closure_elements ~closure_element_types =
+    ~closure_bound_names_inside ~closure_elements ~closure_element_types ~lifted_consts_prev_functions =
   let function_decls = Set_of_closures.function_decls set_of_closures in
   let all_function_decls_in_set =
     Function_declarations.funs_in_order function_decls
@@ -638,6 +638,9 @@ let simplify_set_of_closures0 dacc context set_of_closures ~closure_bound_names
              used_closure_vars,
              shareable_constants,
              lifted_consts_prev_functions ) ->
+        (* Format.eprintf "Shareable constants before %a:@.%a@.@."
+         *   Code_id.print old_code_id
+         *   (Flambda.Static_const.Map.print Symbol.print) shareable_constants; *)
         let { new_code_id;
               code = new_code;
               function_type;
@@ -671,6 +674,9 @@ let simplify_set_of_closures0 dacc context set_of_closures ~closure_bound_names
         let code_age_relation =
           TE.code_age_relation (DA.typing_env dacc_after_body)
         in
+        (* Format.eprintf "Shareable constants after %a:@.%a@.@."
+         *   Code_id.print old_code_id
+         *   (Flambda.Static_const.Map.print Symbol.print) (UA.shareable_constants uacc_after_upwards_traversal); *)
         ( result_function_decls_in_set,
           code,
           fun_types,
@@ -685,7 +691,7 @@ let simplify_set_of_closures0 dacc context set_of_closures ~closure_bound_names
         TE.code_age_relation (DA.typing_env dacc),
         DA.used_closure_vars dacc,
         DA.shareable_constants dacc,
-        LCS.empty )
+        lifted_consts_prev_functions )
   in
   let dacc =
     DA.add_lifted_constants dacc lifted_consts
@@ -746,13 +752,18 @@ let simplify_set_of_closures0 dacc context set_of_closures ~closure_bound_names
   in
   { set_of_closures; code; dacc }
 
-let introduce_code dacc code =
+let introduce_code ?only_in_denv dacc code =
   let lifted_constants =
     ListLabels.map (Code_id.Lmap.bindings code) ~f:(fun (code_id, code) ->
         LC.create_code code_id code)
   in
-  DA.add_lifted_constants_from_list dacc lifted_constants
-  |> DA.map_denv ~f:(fun denv -> LCS.add_list_to_denv denv lifted_constants)
+  let dacc =
+    match only_in_denv with
+    | None ->
+      DA.add_lifted_constants_from_list dacc lifted_constants
+    | Some () -> dacc
+  in
+  DA.map_denv dacc ~f:(fun denv -> LCS.add_list_to_denv denv lifted_constants)
 
 let simplify_and_lift_set_of_closures dacc ~closure_bound_vars_inverse
     ~closure_bound_vars set_of_closures ~closure_elements ~symbol_projections
@@ -803,14 +814,10 @@ let simplify_and_lift_set_of_closures dacc ~closure_bound_vars_inverse
       ~closure_bound_names_all_sets:[closure_bound_names]
       ~closure_element_types_all_sets:[closure_element_types]
   in
-  let closure_bound_names_inside =
-    match C.closure_bound_names_inside_functions_all_sets context with
-    | [closure_bound_names_inside] -> closure_bound_names_inside
-    | _ -> assert false
-  in
   let { set_of_closures; code; dacc } =
     simplify_set_of_closures0 dacc context set_of_closures ~closure_bound_names
-      ~closure_bound_names_inside ~closure_elements ~closure_element_types
+      ~closure_bound_names_inside:closure_bound_names ~closure_elements ~closure_element_types
+      ~lifted_consts_prev_functions:LCS.empty
   in
   let closure_symbols_set =
     Symbol.Set.of_list (Closure_id.Lmap.data closure_symbols)
@@ -884,7 +891,7 @@ let simplify_non_lifted_set_of_closures0 dacc bound_vars ~closure_bound_vars
     simplify_set_of_closures0
       (C.dacc_prior_to_sets context)
       context set_of_closures ~closure_bound_names ~closure_bound_names_inside
-      ~closure_elements ~closure_element_types
+      ~closure_elements ~closure_element_types ~lifted_consts_prev_functions:LCS.empty
   in
   let dacc = introduce_code dacc code in
   let defining_expr =
@@ -1024,26 +1031,30 @@ let simplify_non_lifted_set_of_closures dacc (bound_vars : Bound_pattern.t)
     simplify_non_lifted_set_of_closures0 dacc bound_vars ~closure_bound_vars
       set_of_closures ~closure_elements ~closure_element_types
 
-let simplify_lifted_set_of_closures0 context ~closure_symbols
+let simplify_lifted_set_of_closures0 dacc context ~closure_symbols
     ~closure_bound_names_inside ~closure_elements ~closure_element_types
     set_of_closures =
   let closure_bound_names =
     Closure_id.Lmap.map Bound_name.symbol closure_symbols
     |> Closure_id.Lmap.bindings |> Closure_id.Map.of_list
   in
-  let dacc =
-    DA.map_denv (C.dacc_prior_to_sets context) ~f:(fun denv ->
-        (* XXX This will already have been done now *)
-        Closure_id.Lmap.fold
-          (fun _closure_id symbol denv ->
-            DE.define_symbol_if_undefined denv symbol K.value)
-          closure_symbols denv)
+  (* let dacc =
+   *   DA.map_denv (C.dacc_prior_to_sets context) ~f:(fun denv ->
+   *       (\* XXX This will already have been done now *\)
+   *       Closure_id.Lmap.fold
+   *         (fun _closure_id symbol denv ->
+   *           DE.define_symbol_if_undefined denv symbol K.value)
+   *         closure_symbols denv)
+   * in *)
+  let dacc, lifted_consts_prev_functions =
+    DA.get_and_clear_lifted_constants dacc
   in
   let { set_of_closures; code; dacc } =
     simplify_set_of_closures0 dacc context set_of_closures ~closure_bound_names
       ~closure_bound_names_inside ~closure_elements ~closure_element_types
+      ~lifted_consts_prev_functions
   in
-  let dacc = introduce_code dacc code in
+  let dacc = introduce_code ~only_in_denv:() dacc code in
   let code_patterns =
     Code_id.Lmap.keys code |> List.map Bound_symbols.Pattern.code
   in
@@ -1099,10 +1110,6 @@ let simplify_lifted_sets_of_closures dacc ~all_sets_of_closures_and_symbols
     C.create ~dacc_prior_to_sets:dacc ~simplify_toplevel ~all_sets_of_closures
       ~closure_bound_names_all_sets ~closure_element_types_all_sets
   in
-  let closure_bound_names_inside_all_sets =
-    (* CR mshinwell: make naming consistent *)
-    C.closure_bound_names_inside_functions_all_sets context
-  in
   List.fold_left3
     (fun (patterns_acc, static_consts_acc, dacc)
          (closure_symbols, set_of_closures) closure_bound_names_inside
@@ -1122,7 +1129,7 @@ let simplify_lifted_sets_of_closures dacc ~all_sets_of_closures_and_symbols
           in
           bound_symbols, static_consts, dacc
         else
-          simplify_lifted_set_of_closures0 context ~closure_symbols
+          simplify_lifted_set_of_closures0 dacc context ~closure_symbols
             ~closure_bound_names_inside ~closure_elements ~closure_element_types
             set_of_closures
       in
@@ -1133,5 +1140,5 @@ let simplify_lifted_sets_of_closures dacc ~all_sets_of_closures_and_symbols
       in
       Bound_symbols.concat patterns patterns_acc, static_const_group, dacc)
     (Bound_symbols.empty, Rebuilt_static_const.Group.empty, dacc)
-    all_sets_of_closures_and_symbols closure_bound_names_inside_all_sets
+    all_sets_of_closures_and_symbols closure_bound_names_all_sets
     closure_elements_and_types_all_sets

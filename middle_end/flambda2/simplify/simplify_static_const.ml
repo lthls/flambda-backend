@@ -254,6 +254,10 @@ let simplify_static_consts dacc (bound_symbols : Bound_symbols.t) static_consts
       ~all_sets_of_closures_and_symbols ~closure_bound_names_all_sets
       ~simplify_toplevel
   in
+  (* Format.eprintf "Lifted sets of closures:@.Bound symbols = %a@.Static consts = %a@.Dacc = %a@.@."
+   *   Bound_symbols.print bound_symbols''
+   *   Rebuilt_static_const.Group.print static_consts''
+   *   DA.print dacc; *)
   (* The ordering of these lists doesn't matter as they will go through
      [Sort_lifted_constants] before the terms are constructed. *)
   ( Bound_symbols.concat bound_symbols' bound_symbols'',

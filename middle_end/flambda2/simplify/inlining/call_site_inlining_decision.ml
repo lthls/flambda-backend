@@ -307,7 +307,7 @@ let make_decision dacc ~simplify_expr ~function_decl ~apply ~return_arity : t =
         match inline with
         | Never_inline -> assert false
         | Default_inline ->
-          if Simplify_rec_info_expr.depth_may_be_at_least dacc
+          if false && Simplify_rec_info_expr.depth_may_be_at_least dacc
                function_decl_rec_info (max_rec_depth + 1)
           then Recursion_depth_exceeded
           else
