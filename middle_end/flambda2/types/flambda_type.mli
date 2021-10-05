@@ -180,6 +180,8 @@ module Typing_env : sig
 
   val clean_for_export : t -> reachable_names:Name_occurrences.t -> t
 
+  val to_closure_conversion_approx : t -> Value_approximation.t Symbol.Map.t
+
   module Serializable : sig
     type typing_env = t
 
@@ -198,14 +200,6 @@ module Typing_env : sig
       get_imported_names:(unit -> Name.Set.t) ->
       get_imported_code:(unit -> Exported_code.t) ->
       typing_env
-
-    val to_closure_conversion_approx :
-      t ->
-      Flambda.Code.t Code_id.Map.t ->
-      resolver:(Compilation_unit.t -> typing_env option) ->
-      get_imported_names:(unit -> Name.Set.t) ->
-      get_imported_code:(unit -> Exported_code.t) ->
-      Value_approximation.t Symbol.Map.t
 
     val all_ids_for_export : t -> Ids_for_export.t
 

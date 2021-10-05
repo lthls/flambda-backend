@@ -262,14 +262,6 @@ module Serializable : sig
   val create_from_closure_conversion_approx :
     Value_approximation.t Symbol.Map.t -> t
 
-  val to_closure_conversion_approx :
-    t ->
-    Flambda.Code.t Code_id.Map.t ->
-    resolver:(Compilation_unit.t -> typing_env option) ->
-    get_imported_names:(unit -> Name.Set.t) ->
-    get_imported_code:(unit -> Exported_code.t) ->
-    Value_approximation.t Symbol.Map.t
-
   val print : Format.formatter -> t -> unit
 
   val to_typing_env :
@@ -404,82 +396,6 @@ end = struct
       all_code = Code_id.Map.empty
     }
 
-  let to_closure_conversion_approx
-      ({ defined_symbols;
-         code_age_relation = _;
-         just_after_level;
-         next_binding_time = _
-       } as t) all_code ~resolver ~get_imported_names ~get_imported_code =
-    let typing_env =
-      to_typing_env t ~resolver ~get_imported_names ~get_imported_code
-    in
-    let rec type_to_approx (ty : Type_grammar.t) : Value_approximation.t =
-      let resolved = Type_grammar.expand_head ty typing_env in
-      match resolved with
-      | Const _ -> Value_unknown
-      | Naked_immediate _ | Naked_float _ | Naked_int32 _ | Naked_int64 _
-      | Naked_nativeint _ | Rec_info _ ->
-        Misc.fatal_error
-          "Typing_env.Serializable.to_closure_conversion_approx: Wrong kind"
-      | Value (Unknown | Bottom) -> Value_unknown
-      | Value (Ok ty) -> begin
-        match ty with
-        | Array _ | String _ | Boxed_float _ | Boxed_int32 _ | Boxed_int64 _
-        | Boxed_nativeint _ ->
-          Value_unknown
-        | Closures { by_closure_id } -> (
-          let module RLC =
-            Row_like.For_closures_entry_by_set_of_closures_contents
-          in
-          match RLC.get_singleton by_closure_id with
-          | None -> Value_unknown
-          | Some ((closure_id, _contents), closures_entry) -> begin
-            match
-              Closures_entry.find_function_declaration closures_entry closure_id
-            with
-            | Bottom | Ok Bottom | Ok Unknown -> Value_unknown
-            | Ok (Ok (Inlinable inlinable)) ->
-              let code_id =
-                Function_declaration_type.Inlinable.code_id inlinable
-              in
-              let code = Code_id.Map.find_opt code_id all_code in
-              (* CR vlaviron: Should we fail if [code] is [None] ? *)
-              Closure_approximation (code_id, code)
-            | Ok (Ok (Non_inlinable non_inlinable)) ->
-              let code_id =
-                Function_declaration_type.Non_inlinable.code_id non_inlinable
-              in
-              Closure_approximation (code_id, None)
-          end)
-        | Variant { immediates = Unknown; blocks = _; is_unique = _ }
-        | Variant { immediates = _; blocks = Unknown; is_unique = _ } ->
-          Value_unknown
-        | Variant
-            { immediates = Known imms; blocks = Known blocks; is_unique = _ } ->
-          if Type_grammar.is_obviously_bottom imms
-          then
-            match Row_like.For_blocks.get_singleton blocks with
-            | None -> Value_unknown
-            | Some ((_tag, _size), fields) ->
-              let fields =
-                List.map type_to_approx (Product.Int_indexed.components fields)
-              in
-              Block_approximation (Array.of_list fields)
-          else Value_unknown
-      end
-    in
-    let names_to_types = Cached.names_to_types just_after_level in
-    let get_symbol_type sym =
-      match Name.Map.find_opt (Name.symbol sym) names_to_types with
-      | None -> Misc.fatal_errorf "No equation for symbol %a" Symbol.print sym
-      | Some (ty, _, _) -> ty
-    in
-    Symbol.Set.fold
-      (fun sym approxs ->
-        let approx = type_to_approx (get_symbol_type sym) in
-        Symbol.Map.add sym approx approxs)
-      defined_symbols Symbol.Map.empty
-
   (* CR mshinwell for vlaviron: Shouldn't some of this be in
      [Cached.all_ids_for_export]? *)
   let all_ids_for_export
@@ -555,6 +471,85 @@ end = struct
     in
     { defined_symbols; code_age_relation; just_after_level; next_binding_time }
 end
+
+let to_closure_conversion_approx
+    ({ resolver = _;
+       get_imported_names = _;
+       get_imported_code = _;
+       defined_symbols;
+       code_age_relation = _;
+       all_code;
+       prev_levels = _;
+       current_level;
+       next_binding_time = _;
+       min_binding_time = _
+     } as typing_env) =
+  let just_after_level = One_level.just_after_level current_level in
+  let rec type_to_approx (ty : Type_grammar.t) : Value_approximation.t =
+    let resolved = Type_grammar.expand_head ty typing_env in
+    match resolved with
+    | Const _ -> Value_unknown
+    | Naked_immediate _ | Naked_float _ | Naked_int32 _ | Naked_int64 _
+    | Naked_nativeint _ | Rec_info _ ->
+      Misc.fatal_error
+        "Typing_env.Serializable.to_closure_conversion_approx: Wrong kind"
+    | Value (Unknown | Bottom) -> Value_unknown
+    | Value (Ok ty) -> begin
+      match ty with
+      | Array _ | String _ | Boxed_float _ | Boxed_int32 _ | Boxed_int64 _
+      | Boxed_nativeint _ ->
+        Value_unknown
+      | Closures { by_closure_id } -> (
+        let module RLC = Row_like.For_closures_entry_by_set_of_closures_contents
+        in
+        match RLC.get_singleton by_closure_id with
+        | None -> Value_unknown
+        | Some ((closure_id, _contents), closures_entry) -> begin
+          match
+            Closures_entry.find_function_declaration closures_entry closure_id
+          with
+          | Bottom | Ok Bottom | Ok Unknown -> Value_unknown
+          | Ok (Ok (Inlinable inlinable)) ->
+            let code_id =
+              Function_declaration_type.Inlinable.code_id inlinable
+            in
+            let code = Code_id.Map.find_opt code_id all_code in
+            (* CR vlaviron: Should we fail if [code] is [None] ? *)
+            Closure_approximation (code_id, code)
+          | Ok (Ok (Non_inlinable non_inlinable)) ->
+            let code_id =
+              Function_declaration_type.Non_inlinable.code_id non_inlinable
+            in
+            Closure_approximation (code_id, None)
+        end)
+      | Variant { immediates = Unknown; blocks = _; is_unique = _ }
+      | Variant { immediates = _; blocks = Unknown; is_unique = _ } ->
+        Value_unknown
+      | Variant
+          { immediates = Known imms; blocks = Known blocks; is_unique = _ } ->
+        if Type_grammar.is_obviously_bottom imms
+        then
+          match Row_like.For_blocks.get_singleton blocks with
+          | None -> Value_unknown
+          | Some ((_tag, _size), fields) ->
+            let fields =
+              List.map type_to_approx (Product.Int_indexed.components fields)
+            in
+            Block_approximation (Array.of_list fields)
+        else Value_unknown
+    end
+  in
+  let names_to_types = Cached.names_to_types just_after_level in
+  let get_symbol_type sym =
+    match Name.Map.find_opt (Name.symbol sym) names_to_types with
+    | None -> Misc.fatal_errorf "No equation for symbol %a" Symbol.print sym
+    | Some (ty, _, _) -> ty
+  in
+  Symbol.Set.fold
+    (fun sym approxs ->
+      let approx = type_to_approx (get_symbol_type sym) in
+      Symbol.Map.add sym approx approxs)
+    defined_symbols Symbol.Map.empty
 
 let is_empty t =
   One_level.is_empty t.current_level
