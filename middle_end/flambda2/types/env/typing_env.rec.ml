@@ -542,7 +542,7 @@ let to_closure_conversion_approx
   let names_to_types = Cached.names_to_types just_after_level in
   let get_symbol_type sym =
     match Name.Map.find_opt (Name.symbol sym) names_to_types with
-    | None -> Misc.fatal_errorf "No equation for symbol %a" Symbol.print sym
+    | None -> Type_grammar.unknown Flambda_kind.value
     | Some (ty, _, _) -> ty
   in
   Symbol.Set.fold
