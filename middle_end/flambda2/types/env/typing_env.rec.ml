@@ -478,13 +478,14 @@ let to_closure_conversion_approx
        get_imported_code = _;
        defined_symbols;
        code_age_relation = _;
-       all_code;
+       all_code = _;
        prev_levels = _;
        current_level;
        next_binding_time = _;
        min_binding_time = _
-     } as typing_env) =
+     } as typing_env) ~get_imported_code =
   let just_after_level = One_level.just_after_level current_level in
+  let all_code = get_imported_code () in
   let rec type_to_approx (ty : Type_grammar.t) : Value_approximation.t =
     let resolved = Type_grammar.expand_head ty typing_env in
     match resolved with
@@ -513,7 +514,7 @@ let to_closure_conversion_approx
             let code_id =
               Function_declaration_type.Inlinable.code_id inlinable
             in
-            let code = Code_id.Map.find_opt code_id all_code in
+            let code = Exported_code.find_code all_code code_id in
             (* CR vlaviron: Should we fail if [code] is [None] ? *)
             Closure_approximation (code_id, code)
           | Ok (Ok (Non_inlinable non_inlinable)) ->
