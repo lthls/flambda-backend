@@ -81,7 +81,9 @@ end
 module Env : sig
   type t
 
-  val empty : backend:(module Flambda_backend_intf.S) -> t
+  val empty :
+    backend:(module Flambda_backend_intf.S)
+    -> cmx_loader:Flambda_cmx.loader -> t
 
   val clear_local_bindings : t -> t
 
@@ -136,6 +138,7 @@ module Env : sig
   val current_unit_id : t -> Ident.t
 
   val symbol_for_global' : t -> Ident.t -> Symbol.t
+
 end
 
 (** Used to pipe some data through closure conversion *)

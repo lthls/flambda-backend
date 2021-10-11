@@ -97,7 +97,8 @@ module Env = struct
       current_unit_id : Ident.t;
       current_depth : Variable.t option;
       symbol_for_global' : Ident.t -> Symbol.t;
-      value_approximations : Value_approximation.t Name.Map.t
+      value_approximations : Value_approximation.t Name.Map.t;
+      approximation_for_external_symbol : Symbol.t -> Value_approximation.t;
     }
 
   let backend t = t.backend
@@ -108,7 +109,33 @@ module Env = struct
 
   let symbol_for_global' t = t.symbol_for_global'
 
-  let empty ~backend =
+  let approximation_loader loader =
+    let externals = ref Symbol.Map.empty in
+    (fun symbol ->
+       match Symbol.Map.find symbol !externals with
+       | approx -> approx
+       | exception Not_found ->
+         let comp_unit = Symbol.compilation_unit symbol in
+         match Flambda_cmx.load_cmx_file_contents loader comp_unit with
+         | None ->
+           externals :=
+             Symbol.Map.add symbol Value_approximation.Value_unknown !externals;
+           Value_approximation.Value_unknown
+         | Some typing_env ->
+           (* Format.eprintf "Loaded %a" Compilation_unit.print comp_unit; *)
+           let approxs =
+             Flambda_type.Typing_env.to_closure_conversion_approx typing_env
+               ~get_imported_code:(Flambda_cmx.get_imported_code loader)
+           in
+           externals :=
+             Symbol.Map.union
+               (fun s _ _ ->
+                  Misc.fatal_errorf "External symbol %a loaded twice."
+                    Symbol.print s)
+               approxs !externals;
+           Symbol.Map.find symbol approxs)
+
+  let empty ~backend ~cmx_loader =
     let module Backend = (val backend : Flambda_backend_intf.S) in
     let compilation_unit = Compilation_unit.get_current_exn () in
     { variables = Ident.Map.empty;
@@ -118,6 +145,7 @@ module Env = struct
       current_unit_id = Compilation_unit.get_persistent_ident compilation_unit;
       current_depth = None;
       symbol_for_global' = Backend.symbol_for_global';
+      approximation_for_external_symbol = approximation_loader cmx_loader;
       value_approximations = Name.Map.empty
     }
 
@@ -129,6 +157,7 @@ module Env = struct
         current_unit_id;
         current_depth;
         symbol_for_global';
+        approximation_for_external_symbol;
         value_approximations
       } =
     let simples_to_substitute =
@@ -143,6 +172,7 @@ module Env = struct
       current_unit_id;
       current_depth;
       symbol_for_global';
+      approximation_for_external_symbol;
       value_approximations
     }
 
@@ -243,7 +273,10 @@ module Env = struct
       ~const:(fun _ -> Value_approximation.Value_unknown)
       ~name:(fun name ~coercion:_ ->
         try Name.Map.find name t.value_approximations
-        with Not_found -> Value_approximation.Value_unknown)
+        with Not_found ->
+          Name.pattern_match name
+            ~var:(fun _ -> Value_approximation.Value_unknown)
+            ~symbol:t.approximation_for_external_symbol)
 
   let add_approximation_alias t name alias =
     match find_value_approximation t (Simple.name name) with
@@ -350,8 +383,8 @@ module Acc = struct
   let remove_continuation_from_free_names cont t =
     { t with
       free_names = Name_occurrences.remove_continuation t.free_names cont;
-      continuation_applications =
-        Continuation.Map.remove cont t.continuation_applications
+      (* continuation_applications =
+       *   Continuation.Map.remove cont t.continuation_applications *)
     }
 
   let remove_code_id_from_free_names code_id t =
