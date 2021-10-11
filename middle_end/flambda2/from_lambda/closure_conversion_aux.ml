@@ -123,17 +123,11 @@ module Env = struct
            Value_approximation.Value_unknown
          | Some typing_env ->
            (* Format.eprintf "Loaded %a" Compilation_unit.print comp_unit; *)
-           let approxs =
-             Flambda_type.Typing_env.to_closure_conversion_approx typing_env
-               ~get_imported_code:(Flambda_cmx.get_imported_code loader)
+           let approx =
+             Flambda_type.Typing_env.to_closure_conversion_approx typing_env symbol
            in
-           externals :=
-             Symbol.Map.union
-               (fun s _ _ ->
-                  Misc.fatal_errorf "External symbol %a loaded twice."
-                    Symbol.print s)
-               approxs !externals;
-           Symbol.Map.find symbol approxs)
+           externals := Symbol.Map.add symbol approx !externals;
+           approx)
 
   let empty ~backend ~cmx_loader =
     let module Backend = (val backend : Flambda_backend_intf.S) in

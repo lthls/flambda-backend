@@ -475,15 +475,15 @@ end
 let to_closure_conversion_approx
     ({ resolver = _;
        get_imported_names = _;
-       get_imported_code = _;
-       defined_symbols;
+       get_imported_code;
+       defined_symbols = _;
        code_age_relation = _;
        all_code = _;
        prev_levels = _;
        current_level;
        next_binding_time = _;
        min_binding_time = _
-     } as typing_env) ~get_imported_code =
+     } as typing_env) symbol =
   let just_after_level = One_level.just_after_level current_level in
   let all_code = get_imported_code () in
   let rec type_to_approx (ty : Type_grammar.t) : Value_approximation.t =
@@ -541,16 +541,12 @@ let to_closure_conversion_approx
     end
   in
   let names_to_types = Cached.names_to_types just_after_level in
-  let get_symbol_type sym =
-    match Name.Map.find_opt (Name.symbol sym) names_to_types with
+  let symbol_type =
+    match Name.Map.find_opt (Name.symbol symbol) names_to_types with
     | None -> Type_grammar.unknown Flambda_kind.value
     | Some (ty, _, _) -> ty
   in
-  Symbol.Set.fold
-    (fun sym approxs ->
-      let approx = type_to_approx (get_symbol_type sym) in
-      Symbol.Map.add sym approx approxs)
-    defined_symbols Symbol.Map.empty
+  type_to_approx symbol_type
 
 let is_empty t =
   One_level.is_empty t.current_level

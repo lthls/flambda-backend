@@ -143,7 +143,7 @@ val free_names_transitive : t -> Type_grammar.t -> Name_occurrences.t
 
 val clean_for_export : t -> reachable_names:Name_occurrences.t -> t
 
-val to_closure_conversion_approx : t -> get_imported_code:(unit -> Exported_code.t) -> Value_approximation.t Symbol.Map.t
+val to_closure_conversion_approx : t -> Symbol.t -> Value_approximation.t
 
 module Serializable : sig
   type typing_env = t
