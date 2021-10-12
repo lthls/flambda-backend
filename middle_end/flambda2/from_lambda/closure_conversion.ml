@@ -190,7 +190,6 @@ module Inlining = struct
       Not_inlinable
     | Block_approximation _ -> assert false
     | Closure_approximation (code_id, None) ->
-      (* Format.eprintf "No infos\n"; *)
       Inlining_report.record_decision ~dbg
         (At_call_site
            (Inlining_report.Known_function
@@ -199,7 +198,6 @@ module Inlining = struct
               }));
       Not_inlinable
     | Closure_approximation (code_id, Some code) ->
-      (* Format.eprintf "Some infos\n"; *)
       let fun_params_length =
         Code.params_arity code |> Flambda_arity.With_subkinds.to_arity
         |> Flambda_arity.length
@@ -1410,14 +1408,7 @@ let close_program ~symbol_for_global ~big_endian ~cmx_loader ~module_ident
   let module_block_approximation =
     match Acc.continuation_known_arguments ~cont:prog_return_cont acc with
     | Some [approx] -> approx
-    | Some l ->
-      Format.eprintf "%a, approx len: %d\n" Continuation.print prog_return_cont
-        (List.length l);
-      assert false
-    | _ ->
-      Format.eprintf "%a, approx len: none\n" Continuation.print
-        prog_return_cont;
-      Value_approximation.Value_unknown
+    | _ -> assert false
   in
   let acc, body =
     Code_id.Map.fold
@@ -1476,13 +1467,12 @@ let close_program ~symbol_for_global ~big_endian ~cmx_loader ~module_ident
         |> Expr_with_acc.create_let)
       (acc, body) (Acc.declared_symbols acc)
   in
-  let used_closure_vars =
-    (* let vs = *)
-    Name_occurrences.closure_vars (Acc.free_names acc)
-    (*in Format.eprintf "%a\n" Var_within_closure.Set.print vs;
-     * vs *)
+  let used_closure_vars = Name_occurrences.closure_vars (Acc.free_names acc) in
+  let all_code =
+    Exported_code.add_code (Acc.code acc)
+      (Exported_code.mark_as_imported
+         (Flambda_cmx.get_imported_code cmx_loader ()))
   in
-  let all_code = Exported_code.add_code (Acc.code acc) Exported_code.empty in
   let cmx =
     Flambda_cmx.prepare_cmx_from_approx ~approxs:symbols_approximations
       ~used_closure_vars all_code
