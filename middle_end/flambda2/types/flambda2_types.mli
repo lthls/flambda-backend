@@ -653,4 +653,8 @@ val reify :
   t ->
   reification_result
 
-val extract_symbol_approx : Typing_env.t -> Symbol.t -> (Code_id.t -> 'code option) -> 'code Value_approximation.t
+val extract_symbol_approx :
+  Typing_env.t ->
+  Symbol.t ->
+  (Code_id.t -> 'code option) ->
+  'code Value_approximation.t

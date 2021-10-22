@@ -291,14 +291,14 @@ end = struct
             (Variable.create (Code_id.name code_id))
         in
         let fun_decl =
-          TG.Function_type.create code_id ~rec_info:(MTC.unknown Flambda_kind.rec_info)
+          TG.Function_type.create code_id
+            ~rec_info:(MTC.unknown Flambda_kind.rec_info)
         in
         let all_function_decls_in_set =
           Closure_id.Map.singleton closure_id (Or_unknown_or_bottom.Ok fun_decl)
         in
         let all_closures_in_set =
-          Closure_id.Map.singleton closure_id
-            (MTC.unknown Flambda_kind.value)
+          Closure_id.Map.singleton closure_id (MTC.unknown Flambda_kind.value)
         in
         let all_closure_vars_in_set = Var_within_closure.Map.empty in
         MTC.exactly_this_closure closure_id ~all_function_decls_in_set
