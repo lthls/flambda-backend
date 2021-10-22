@@ -65,49 +65,46 @@ let extract_symbol_approx env symbol find_code =
     let expanded = Expand_head.expand_head env ty in
     match Expand_head.Expanded_type.descr expanded with
     | Unknown | Bottom -> Value_unknown
-    | Ok (Naked_immediate _ | Naked_float _ | Naked_int32 _ | Naked_int64 _
-         | Naked_nativeint _ | Rec_info _) ->
+    | Ok
+        ( Naked_immediate _ | Naked_float _ | Naked_int32 _ | Naked_int64 _
+        | Naked_nativeint _ | Rec_info _ ) ->
       Misc.fatal_error
         "Typing_env.Serializable.to_closure_conversion_approx: Wrong kind"
     | Ok (Value ty) -> begin
-        match ty with
-        | Array _ | String _ | Boxed_float _ | Boxed_int32 _ | Boxed_int64 _
-        | Boxed_nativeint _ ->
-          Value_unknown
-        | Closures { by_closure_id } -> (
-          match Row_like_for_closures.get_singleton by_closure_id with
+      match ty with
+      | Array _ | String _ | Boxed_float _ | Boxed_int32 _ | Boxed_int64 _
+      | Boxed_nativeint _ ->
+        Value_unknown
+      | Closures { by_closure_id } -> (
+        match Row_like_for_closures.get_singleton by_closure_id with
+        | None -> Value_unknown
+        | Some ((closure_id, _contents), closures_entry) -> begin
+          match Closures_entry.find_function_type closures_entry closure_id with
+          | Bottom | Unknown -> Value_unknown
+          | Ok function_type ->
+            let code_id = Function_type.code_id function_type in
+            let code = find_code code_id in
+            (* CR vlaviron: Should we fail if [code] is [None] ? *)
+            Closure_approximation (code_id, code)
+        end)
+      | Variant { immediates = Unknown; blocks = _; is_unique = _ }
+      | Variant { immediates = _; blocks = Unknown; is_unique = _ } ->
+        Value_unknown
+      | Variant
+          { immediates = Known imms; blocks = Known blocks; is_unique = _ } ->
+        if Type_grammar.is_obviously_bottom imms
+        then
+          match Row_like_for_blocks.get_singleton blocks with
           | None -> Value_unknown
-          | Some ((closure_id, _contents), closures_entry) -> begin
-            match
-              Closures_entry.find_function_type closures_entry closure_id
-            with
-            | Bottom | Unknown -> Value_unknown
-            | Ok function_type ->
-              let code_id =
-                Function_type.code_id function_type
-              in
-              let code = find_code code_id in
-              (* CR vlaviron: Should we fail if [code] is [None] ? *)
-              Closure_approximation (code_id, code)
-          end)
-        | Variant { immediates = Unknown; blocks = _; is_unique = _ }
-        | Variant { immediates = _; blocks = Unknown; is_unique = _ } ->
-          Value_unknown
-        | Variant
-            { immediates = Known imms; blocks = Known blocks; is_unique = _ } ->
-          if Type_grammar.is_obviously_bottom imms
-          then
-            match Row_like_for_blocks.get_singleton blocks with
-            | None -> Value_unknown
-            | Some ((_tag, _size), fields) ->
-              let fields =
-                List.map type_to_approx (Product.Int_indexed.components fields)
-              in
-              Block_approximation (Array.of_list fields)
-          else Value_unknown
-      end
-    in
-    let get_symbol_type sym =
-      Typing_env.find env (Name.symbol sym) (Some Flambda_kind.value)
-    in
-    type_to_approx (get_symbol_type symbol)
+          | Some ((_tag, _size), fields) ->
+            let fields =
+              List.map type_to_approx (Product.Int_indexed.components fields)
+            in
+            Block_approximation (Array.of_list fields)
+        else Value_unknown
+    end
+  in
+  let get_symbol_type sym =
+    Typing_env.find env (Name.symbol sym) (Some Flambda_kind.value)
+  in
+  type_to_approx (get_symbol_type symbol)

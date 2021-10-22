@@ -169,11 +169,12 @@ let lambda_to_cmm ~ppf_dump:ppf ~prefixname ~filename ~module_ident
           else raw_flambda
         in
         let round = 0 in
-        let cmx_loader = Flambda_cmx.create_loader ~get_global_info ~symbol_for_global in
+        let cmx_loader =
+          Flambda_cmx.create_loader ~get_global_info ~symbol_for_global
+        in
         let { Simplify.unit = flambda; cmx; all_code } =
           Profile.record_call ~accumulate:true "simplify" (fun () ->
-              Simplify.run ~cmx_loader ~round
-                raw_flambda)
+              Simplify.run ~cmx_loader ~round raw_flambda)
         in
         (if Flambda_features.inlining_report ()
         then

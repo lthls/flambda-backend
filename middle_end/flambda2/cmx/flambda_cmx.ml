@@ -23,8 +23,7 @@ type loader =
   { get_global_info : Compilation_unit.t -> Flambda_cmx_format.t option;
     mutable imported_names : Name.Set.t;
     mutable imported_code : Exported_code.t;
-    mutable imported_units :
-      TE.t option Compilation_unit.Map.t
+    mutable imported_units : TE.t option Compilation_unit.Map.t
   }
 
 let rec load_cmx_file_contents loader comp_unit =
@@ -189,12 +188,13 @@ let prepare_cmx_file_contents ~final_typing_env ~module_symbol
          ~used_closure_vars)
 
 let prepare_cmx_from_approx ~approxs ~used_closure_vars all_code =
-  if Flambda_features.opaque () then None
+  if Flambda_features.opaque ()
+  then None
   else
     let final_typing_env =
       TE.Serializable.create_from_closure_conversion_approx approxs
     in
-    let exported_offsets =
-      Exported_offsets.imported_offsets ()
-    in
-    Some (Flambda_cmx_format.create ~final_typing_env ~all_code ~exported_offsets ~used_closure_vars)
+    let exported_offsets = Exported_offsets.imported_offsets () in
+    Some
+      (Flambda_cmx_format.create ~final_typing_env ~all_code ~exported_offsets
+         ~used_closure_vars)

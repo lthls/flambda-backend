@@ -24,8 +24,7 @@ type loader
 val create_loader :
   get_global_info:
     (Flambda2_identifiers.Compilation_unit.t -> Flambda_cmx_format.t option) ->
-  symbol_for_global:
-    (?comp_unit:Compilation_unit.t -> Ident.t -> Symbol.t) ->
+  symbol_for_global:(?comp_unit:Compilation_unit.t -> Ident.t -> Symbol.t) ->
   loader
 
 val get_imported_names : loader -> unit -> Name.Set.t
@@ -35,8 +34,7 @@ val get_imported_code : loader -> unit -> Exported_code.t
 val load_cmx_file_contents :
   loader -> Compilation_unit.t -> Flambda2_types.Typing_env.t option
 
-val load_symbol_approx :
-  loader -> Symbol.t -> Code.t Value_approximation.t
+val load_symbol_approx : loader -> Symbol.t -> Code.t Value_approximation.t
 
 val prepare_cmx_file_contents :
   final_typing_env:Flambda2_types.Typing_env.t option ->
