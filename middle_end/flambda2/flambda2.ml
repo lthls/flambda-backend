@@ -158,13 +158,15 @@ let lambda_to_cmm ~ppf_dump:ppf ~prefixname ~filename ~module_ident
     in
     Compiler_hooks.execute Raw_flambda2 raw_flambda;
     print_rawflambda ppf raw_flambda;
-    (if Flambda_features.inlining_report ()
-    then
-      let output_prefix = prefixname ^ ".cps_conv" in
-      Inlining_report.output_then_forget_decisions ~output_prefix);
     let flambda, (cmx : Flambda2_cmx.Flambda_cmx_format.t option), all_code =
       if Flambda_features.classic_mode ()
-      then raw_flambda, cmx, code
+      then begin
+        (if Flambda_features.inlining_report ()
+        then
+          let output_prefix = prefixname ^ ".cps_conv" in
+          Inlining_report.output_then_forget_decisions ~output_prefix);
+        raw_flambda, cmx, code
+      end
       else
         let raw_flambda =
           if Flambda_features.Debug.permute_every_name ()
