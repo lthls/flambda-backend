@@ -60,9 +60,7 @@ module IR : sig
       continuation : Continuation.t;
       exn_continuation : exn_continuation;
       loc : Lambda.scoped_location;
-      tailcall : Lambda.tailcall_attribute;
       inlined : Lambda.inlined_attribute;
-      specialised : Lambda.specialise_attribute;
       probe : Lambda.probe
     }
 

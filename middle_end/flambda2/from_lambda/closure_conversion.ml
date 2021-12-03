@@ -309,17 +309,6 @@ module Inlining = struct
            ~my_depth
            ~free_names_of_body
          ->
-        let args, remain_args =
-          let rec split l1 l2 =
-            match l1, l2 with
-            | _, [] -> [], l1
-            | [], _ -> assert false
-            | e1 :: l1, _ :: l2 ->
-              let args, remains = split l1 l2 in
-              e1 :: args, remains
-          in
-          split args params
-        in
         let free_names_of_body =
           match free_names_of_body with
           | Unknown ->
@@ -333,41 +322,16 @@ module Inlining = struct
             ~apply_depth
         in
         let acc = Acc.with_free_names Name_occurrences.empty acc in
-        let body apply_return_continuation acc =
-          match Exn_continuation.extra_args apply_exn_continuation with
-          | [] ->
-            make_inlined_body acc
-              ~apply_exn_continuation:
-                (Exn_continuation.exn_handler apply_exn_continuation)
-              ~apply_return_continuation
-          | extra_args ->
-            wrap_inlined_body_for_exn_support acc ~extra_args
-              ~apply_exn_continuation ~apply_return_continuation
-              ~result_arity:(Code.result_arity code) ~make_inlined_body
-        in
-        match remain_args with
-        | [] -> body apply_return_continuation acc
-        | args ->
-          let wrapper_cont = Continuation.create () in
-          let continuation = Apply.Result_continuation.Return wrapper_cont in
-          let returned_func = Variable.create "func" in
-          let call_kind = Call_kind.indirect_function_call_unknown_arity () in
-          let handler acc =
-            let over_apply =
-              Apply.create ~callee:(Simple.var returned_func)
-                ~continuation:apply_return_continuation apply_exn_continuation
-                ~args ~call_kind (Apply.dbg apply)
-                ~inlined:(Apply.inlined apply)
-                ~inlining_state:(Inlining_state.default ~round:0)
-                ~probe_name:(Apply.probe_name apply)
-            in
-            Expr_with_acc.create_apply acc over_apply
-          in
-          let body = body continuation in
-          Let_cont_with_acc.build_non_recursive acc wrapper_cont
-            ~handler_params:
-              [Bound_parameter.create returned_func K.With_subkind.any_value]
-            ~handler ~body ~is_exn_handler:false)
+        match Exn_continuation.extra_args apply_exn_continuation with
+        | [] ->
+          make_inlined_body acc
+            ~apply_exn_continuation:
+              (Exn_continuation.exn_handler apply_exn_continuation)
+            ~apply_return_continuation
+        | extra_args ->
+          wrap_inlined_body_for_exn_support acc ~extra_args
+            ~apply_exn_continuation ~apply_return_continuation
+            ~result_arity:(Code.result_arity code) ~make_inlined_body)
 end
 
 let close_c_call acc ~let_bound_var
@@ -770,19 +734,10 @@ let close_let_cont acc env ~name ~is_exn_handler ~params
     in
     Let_cont_with_acc.build_recursive acc ~handlers ~body
 
-let close_apply acc env
-    ({ kind;
-       func;
-       args;
-       continuation;
-       exn_continuation;
-       loc;
-       tailcall = _;
-       inlined;
-       specialised = _;
-       probe
-     } :
-      IR.apply) : Acc.t * Expr_with_acc.t =
+let close_exact_or_unknown_apply acc env
+    ({ kind; func; args; continuation; exn_continuation; loc; inlined; probe } :
+      IR.apply) arity : Acc.t * Expr_with_acc.t =
+  let known_arity = Option.is_some arity in
   let acc, call_kind =
     match kind with
     | Function -> acc, Call_kind.indirect_function_call_unknown_arity ()
@@ -807,7 +762,7 @@ let close_apply acc env
       ~inlining_state:(Inlining_state.default ~round:0)
       ~probe_name
   in
-  if Flambda_features.classic_mode ()
+  if Flambda_features.classic_mode () && known_arity
   then
     match Inlining.inlinable env apply with
     | Not_inlinable -> Expr_with_acc.create_apply acc apply
@@ -1370,6 +1325,145 @@ let close_let_rec acc env ~function_declarations
       (Bound_pattern.set_of_closures ~closure_vars)
       named ~body
     |> Expr_with_acc.create_let
+
+let close_apply acc env (apply : IR.apply) : Acc.t * Expr_with_acc.t =
+  let callee = find_simple_from_id env apply.func in
+  let approx = Env.find_value_approximation env callee in
+  let arity_and_tupled =
+    match approx with
+    | Closure_approximation (_, Code_present code) ->
+      Some (Code.params_arity code, Code.is_tupled code)
+    | Closure_approximation (_, Metadata_only metadata) ->
+      Some
+        (Code_metadata.params_arity metadata, Code_metadata.is_tupled metadata)
+    | Value_unknown -> None
+    | _ ->
+      Misc.fatal_errorf
+        "Unexpected approximation for callee %a in [Closure_conversion], \
+         expected a closure approximation."
+        Simple.print callee
+  in
+  match arity_and_tupled with
+  | None -> close_exact_or_unknown_apply acc env apply None
+  | Some (arity, true) ->
+    close_exact_or_unknown_apply acc env apply (Some arity)
+  | Some (arity, false) -> (
+    let args, missing_args, remaining_args =
+      let rec split l1 l2 =
+        match l1, l2 with
+        | _, [] -> [], [], l1
+        | [], _ -> [], l2, []
+        | e1 :: l1, _ :: l2 ->
+          let args, missing, remains = split l1 l2 in
+          e1 :: args, missing, remains
+      in
+      split apply.args arity
+    in
+    let exact_call apply_continuation acc =
+      match missing_args with
+      | [] ->
+        close_exact_or_unknown_apply acc env
+          { apply with args; continuation = apply_continuation }
+          (Some arity)
+      | _ ->
+        (* In case of partial application, creates a wrapping function from
+           scratch to allow inlining and lifting *)
+        let wrapper_id =
+          Ident.create_local ("partial_" ^ Ident.name apply.func)
+        in
+        let closure_id =
+          Closure_id.wrap
+            (Compilation_unit.get_current_exn ())
+            (Variable.create_with_same_name_as_ident wrapper_id)
+        in
+        let params =
+          let present_args = List.length args in
+          List.mapi
+            (fun n _ ->
+              ( Ident.create_local ("param" ^ string_of_int (present_args + n)),
+                Lambda.Pgenval ))
+            missing_args
+        in
+        let return_continuation = Continuation.create ~sort:Return () in
+        let exn_continuation =
+          { apply.exn_continuation with exn_handler = Continuation.create () }
+        in
+        let all_args = args @ List.map (fun (a, _) -> IR.Var a) params in
+        let fbody acc env =
+          close_exact_or_unknown_apply acc env
+            { apply with
+              kind = Function;
+              args = all_args;
+              continuation = return_continuation;
+              exn_continuation
+            }
+            (Some arity)
+        in
+        let attr =
+          Lambda.
+            { inline = Default_inline;
+              specialise = Default_specialise;
+              local = Default_local;
+              is_a_functor = false;
+              stub = true
+            }
+        in
+        let free_idents_of_body =
+          List.fold_left
+            (fun ids -> function IR.Var id -> Ident.Set.add id ids | _ -> ids)
+            (Ident.Set.singleton apply.func)
+            all_args
+        in
+        let function_declarations =
+          [ Function_decl.create ~let_rec_ident:(Some wrapper_id) ~closure_id
+              ~kind:Lambda.Curried ~params ~return:Lambda.Pgenval
+              ~return_continuation ~exn_continuation ~body:fbody ~attr
+              ~loc:apply.loc ~free_idents_of_body ~stub:true
+              Recursive.Non_recursive ]
+        in
+        let body acc env =
+          let arg = find_simple_from_id env wrapper_id in
+          let acc, apply_cont =
+            Apply_cont_with_acc.create acc
+              ~args_approx:[Env.find_value_approximation env arg]
+              apply_continuation ~args:[arg] ~dbg:Debuginfo.none
+          in
+          Expr_with_acc.create_apply_cont acc apply_cont
+        in
+        close_let_rec acc env ~function_declarations ~body
+    in
+    match remaining_args with
+    | [] -> exact_call apply.continuation acc
+    | args ->
+      let acc, args = find_simples acc env args in
+      let wrapper_cont = Continuation.create () in
+      let _continuation = Apply.Result_continuation.Return wrapper_cont in
+      let acc, exn_continuation =
+        close_exn_continuation acc env apply.exn_continuation
+      in
+      let returned_func = Variable.create "func" in
+      let call_kind = Call_kind.indirect_function_call_unknown_arity () in
+      let inlined = LC.inlined_attribute apply.inlined in
+      let probe_name =
+        match apply.probe with None -> None | Some { name } -> Some name
+      in
+      let handler acc =
+        let over_apply =
+          Apply.create ~callee:(Simple.var returned_func)
+            ~continuation:(Return apply.continuation) exn_continuation ~args
+            ~call_kind
+            (Debuginfo.from_location apply.loc)
+            ~inlined
+            ~inlining_state:(Inlining_state.default ~round:0)
+            ~probe_name
+        in
+        Expr_with_acc.create_apply acc over_apply
+      in
+      let body = exact_call wrapper_cont in
+      Let_cont_with_acc.build_non_recursive acc wrapper_cont
+        ~handler_params:
+          [Bound_parameter.create returned_func K.With_subkind.any_value]
+        ~handler ~body ~is_exn_handler:false)
 
 let close_program ~symbol_for_global ~big_endian ~cmx_loader ~module_ident
     ~module_block_size_in_words ~program ~prog_return_cont ~exn_continuation =

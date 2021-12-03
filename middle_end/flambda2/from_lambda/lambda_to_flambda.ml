@@ -649,9 +649,9 @@ let rec cps_non_tail acc env ccenv (lam : L.lambda)
       { ap_func;
         ap_args;
         ap_loc;
-        ap_tailcall;
+        ap_tailcall = _;
         ap_inlined;
-        ap_specialised;
+        ap_specialised = _;
         ap_probe
       } ->
     cps_non_tail_list acc env ccenv ap_args
@@ -675,9 +675,7 @@ let rec cps_non_tail acc env ccenv (lam : L.lambda)
                     exn_continuation;
                     args;
                     loc = ap_loc;
-                    tailcall = ap_tailcall;
                     inlined = ap_inlined;
-                    specialised = ap_specialised;
                     probe = ap_probe
                   }
                 in
@@ -856,9 +854,7 @@ let rec cps_non_tail acc env ccenv (lam : L.lambda)
                         exn_continuation;
                         args;
                         loc;
-                        tailcall = Default_tailcall;
                         inlined = Default_inlined;
-                        specialised = Default_specialise;
                         probe = None
                       }
                     in
@@ -978,9 +974,7 @@ and cps_tail acc env ccenv (lam : L.lambda) (k : Continuation.t)
                 exn_continuation;
                 args;
                 loc = apply.ap_loc;
-                tailcall = apply.ap_tailcall;
                 inlined = apply.ap_inlined;
-                specialised = apply.ap_specialised;
                 probe = apply.ap_probe
               }
             in
@@ -1162,9 +1156,7 @@ and cps_tail acc env ccenv (lam : L.lambda) (k : Continuation.t)
                     exn_continuation;
                     args;
                     loc;
-                    tailcall = Default_tailcall;
                     inlined = Default_inlined;
-                    specialised = Default_specialise;
                     probe = None
                   }
                 in
