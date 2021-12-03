@@ -83,9 +83,9 @@ let extract_symbol_approx env symbol find_code =
           | Bottom | Unknown -> Value_unknown
           | Ok function_type ->
             let code_id = Function_type.code_id function_type in
-            let code = find_code code_id in
+            let code_or_meta = find_code code_id in
             (* CR vlaviron: Should we fail if [code] is [None] ? *)
-            Closure_approximation (code_id, code)
+            Closure_approximation (code_id, code_or_meta)
         end)
       | Variant { immediates = Unknown; blocks = _; is_unique = _ }
       | Variant { immediates = _; blocks = Unknown; is_unique = _ } ->
