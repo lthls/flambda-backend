@@ -193,7 +193,7 @@ module Inlining = struct
       Inlining_report.(record_decision ~dbg (At_call_site Unknown_function));
       Not_inlinable
     | Block_approximation _ -> assert false
-    | Closure_approximation (code_id, Metadata_only _) ->
+    | Closure_approximation (code_id, _, Metadata_only _) ->
       Inlining_report.record_decision ~dbg
         (At_call_site
            (Inlining_report.Known_function
@@ -201,7 +201,7 @@ module Inlining = struct
                 decision = Definition_says_not_to_inline
               }));
       Not_inlinable
-    | Closure_approximation (code_id, Code_present code) ->
+    | Closure_approximation (code_id, _, Code_present code) ->
       let fun_params_length =
         Code.params_arity code |> Flambda_arity.With_subkinds.to_arity
         |> Flambda_arity.length
@@ -1218,9 +1218,9 @@ let close_functions acc external_env function_declarations =
     Closure_id.Lmap.of_list (List.rev funs)
   in
   let approximations =
-    Closure_id.Map.map
-      (fun (code_id, code) ->
-        Value_approximation.Closure_approximation (code_id, code))
+    Closure_id.Map.mapi
+      (fun closure_id (code_id, code) ->
+        Value_approximation.Closure_approximation (code_id, closure_id, code))
       approximations
   in
   let function_decls = Function_declarations.create funs in
@@ -1331,9 +1331,9 @@ let close_apply acc env (apply : IR.apply) : Acc.t * Expr_with_acc.t =
   let approx = Env.find_value_approximation env callee in
   let arity_and_tupled =
     match approx with
-    | Closure_approximation (_, Code_present code) ->
+    | Closure_approximation (_, _, Code_present code) ->
       Some (Code.params_arity code, Code.is_tupled code)
-    | Closure_approximation (_, Metadata_only metadata) ->
+    | Closure_approximation (_, _, Metadata_only metadata) ->
       Some
         (Code_metadata.params_arity metadata, Code_metadata.is_tupled metadata)
     | Value_unknown -> None

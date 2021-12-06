@@ -150,11 +150,12 @@ module Env = struct
         let approx = Flambda_cmx.load_symbol_approx loader symbol in
         let rec filter_inlinable approx =
           match (approx : value_approximation) with
-          | Value_unknown | Closure_approximation (_, Metadata_only _) -> approx
+          | Value_unknown | Closure_approximation (_, _, Metadata_only _) ->
+            approx
           | Block_approximation approxs ->
             let approxs = Array.map filter_inlinable approxs in
             Value_approximation.Block_approximation approxs
-          | Closure_approximation (code_id, Code_present code) -> (
+          | Closure_approximation (code_id, closure_id, Code_present code) -> (
             match
               Inlining.definition_inlining_decision (Code.inline code)
                 (Code.cost_metrics code)
@@ -163,6 +164,7 @@ module Env = struct
             | _ ->
               Value_approximation.Closure_approximation
                 ( code_id,
+                  closure_id,
                   Code_or_metadata.(remember_only_metadata (create code)) ))
         in
         let approx = filter_inlinable approx in
@@ -296,8 +298,9 @@ module Env = struct
         value_approximations = Name.Map.add name approx t.value_approximations
       }
 
-  let add_closure_approximation t name (code_id, approx) =
-    add_value_approximation t name (Closure_approximation (code_id, approx))
+  let add_closure_approximation t name (code_id, closure_id, approx) =
+    add_value_approximation t name
+      (Closure_approximation (code_id, closure_id, approx))
 
   let add_block_approximation t name approxs =
     if Array.for_all Value_approximation.is_unknown approxs

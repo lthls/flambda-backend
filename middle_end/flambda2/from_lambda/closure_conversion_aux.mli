@@ -136,7 +136,7 @@ module Env : sig
   val add_value_approximation : t -> Name.t -> value_approximation -> t
 
   val add_closure_approximation :
-    t -> Name.t -> Code_id.t * Code_or_metadata.t -> t
+    t -> Name.t -> Code_id.t * Closure_id.t * Code_or_metadata.t -> t
 
   val add_block_approximation : t -> Name.t -> value_approximation array -> t
 
