@@ -96,13 +96,14 @@ let meet_equations_on_params typing_env ~params ~param_types =
       param_types;
   List.fold_left2
     (fun typing_env param param_type ->
-      let kind = Bound_parameter.kind param |> Flambda_kind.With_subkind.kind in
+      let kind = Bound_parameter.kind param in
       let name = Bound_parameter.name param in
-      let existing_type = TE.find typing_env name (Some kind) in
-      match T.meet typing_env existing_type param_type with
+      let type_from_kind = T.unknown_with_subkind kind in
+      match T.meet typing_env type_from_kind param_type with
       | Bottom ->
         (* CR mshinwell for vlaviron: is this correct? *)
-        TE.add_equation typing_env name (T.bottom kind)
+        TE.add_equation typing_env name
+          (T.bottom (Flambda_kind.With_subkind.kind kind))
       | Ok (meet_ty, env_extension) ->
         let typing_env = TE.add_equation typing_env name meet_ty in
         TE.add_env_extension typing_env env_extension)
