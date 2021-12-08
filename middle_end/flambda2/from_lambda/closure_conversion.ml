@@ -1366,9 +1366,7 @@ let close_apply acc env (apply : IR.apply) : Acc.t * Expr_with_acc.t =
   in
   match arity_and_tupled with
   | None -> close_exact_or_unknown_apply acc env apply None
-  | Some (_arity, true) ->
-    close_exact_or_unknown_apply acc env apply (Some approx)
-  | Some (arity, false) -> (
+  | Some (arity, is_tupled) -> (
     let args, missing_args, remaining_args =
       let rec split l1 l2 =
         match l1, l2 with
@@ -1377,6 +1375,13 @@ let close_apply acc env (apply : IR.apply) : Acc.t * Expr_with_acc.t =
         | e1 :: l1, _ :: l2 ->
           let args, missing, remains = split l1 l2 in
           e1 :: args, missing, remains
+      in
+      let arity =
+        if is_tupled
+        then
+          Flambda_arity.With_subkinds.create
+            [Flambda_kind.With_subkind.block Tag.zero arity]
+        else arity
       in
       split apply.args arity
     in
