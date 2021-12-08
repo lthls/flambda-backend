@@ -1359,10 +1359,13 @@ let close_apply acc env (apply : IR.apply) : Acc.t * Expr_with_acc.t =
         (Code_metadata.params_arity metadata, Code_metadata.is_tupled metadata)
     | Value_unknown -> None
     | _ ->
-      Misc.fatal_errorf
-        "Unexpected approximation for callee %a in [Closure_conversion], \
-         expected a closure approximation."
-        Simple.print callee
+      if Flambda_features.check_invariants ()
+      then
+        Misc.fatal_errorf
+          "Unexpected approximation for callee %a in [Closure_conversion], \
+           expected a closure approximation."
+          Simple.print callee
+      else None
   in
   match arity_and_tupled with
   | None -> close_exact_or_unknown_apply acc env apply None
