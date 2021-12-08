@@ -682,15 +682,15 @@ let simplify_function_call ~simplify_expr dacc apply ~callee_ty
      call in order to correctly adopt to the change in calling convention. *)
   let call_must_be_detupled is_function_decl_tupled =
     match call with
-    | Direct _ | Indirect_known_arity _ ->
-      (* In these cases, the calling convention already used in the application
+    | Direct _ ->
+      (* In this case, the calling convention already used in the application
          being simplified is that of the code actually called. Thus we must not
          detuple the function. *)
       false
-      (* In the indirect case, the calling convention used currently is the
+      (* In the indirect cases, the calling convention used currently is the
          generic one. Thus we need to detuple the call iff the function
          declaration is tupled. *)
-    | Indirect_unknown_arity -> is_function_decl_tupled
+    | Indirect_known_arity _ | Indirect_unknown_arity -> is_function_decl_tupled
   in
   let type_unavailable () =
     if not (DA.do_not_rebuild_terms dacc)

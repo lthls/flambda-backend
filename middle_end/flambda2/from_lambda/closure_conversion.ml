@@ -739,13 +739,17 @@ let close_exact_or_unknown_apply acc env
   let callee = find_simple_from_id env func in
   let acc, call_kind =
     match kind with
-    | Function ->
-      acc,
-      begin match (callee_approx : Env.value_approximation option) with
+    | Function -> (
+      ( acc,
+        match (callee_approx : Env.value_approximation option) with
         | Some (Closure_approximation (code_id, closure_id, code_or_meta)) ->
-          let param_arity,return_arity, is_tupled, _closure_used =
+          let param_arity, return_arity, is_tupled, _closure_used =
             let meta = Code_or_metadata.code_metadata code_or_meta in
-            Code_metadata.(params_arity meta, result_arity meta, is_tupled meta, is_my_closure_used meta)
+            Code_metadata.(
+              ( params_arity meta,
+                result_arity meta,
+                is_tupled meta,
+                is_my_closure_used meta ))
           in
           if is_tupled
           then
@@ -753,12 +757,12 @@ let close_exact_or_unknown_apply acc env
               Flambda_arity.With_subkinds.create
                 [Flambda_kind.With_subkind.block Tag.zero param_arity]
             in
-            Call_kind.indirect_function_call_known_arity ~param_arity ~return_arity
+            Call_kind.indirect_function_call_known_arity ~param_arity
+              ~return_arity
           else Call_kind.direct_function_call code_id closure_id ~return_arity
-        | None ->
-          Call_kind.indirect_function_call_unknown_arity ()
-        | _ -> assert false (* See [close_apply] *)
-      end
+        | None -> Call_kind.indirect_function_call_unknown_arity ()
+        | _ -> assert false
+        (* See [close_apply] *) ))
     | Method { kind; obj } ->
       let acc, obj = find_simple acc env obj in
       acc, Call_kind.method_call (LC.method_kind kind) ~obj
