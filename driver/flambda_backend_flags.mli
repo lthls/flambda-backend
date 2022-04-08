@@ -23,6 +23,7 @@ val default_heap_reduction_threshold : int
 val heap_reduction_threshold : int ref
 
 type function_result_types = Never | Functors_only | All_functions
+type projection_mode = No_sharing | Top_of_function
 type opt_level = Oclassic | O2 | O3
 type 'a or_default = Set of 'a | Default
 
@@ -34,6 +35,7 @@ module Flambda2 : sig
   module Default : sig
     val classic_mode : bool
     val join_points : bool
+    val projection_mode : projection_mode
     val unbox_along_intra_function_control_flow : bool
     val backend_cse_at_toplevel : bool
     val cse_depth : int
@@ -49,6 +51,7 @@ module Flambda2 : sig
   type flags = {
     classic_mode : bool;
     join_points : bool;
+    projection_mode : projection_mode;
     unbox_along_intra_function_control_flow : bool;
     backend_cse_at_toplevel : bool;
     cse_depth : int;
@@ -64,6 +67,7 @@ module Flambda2 : sig
 
   val classic_mode : bool or_default ref
   val join_points : bool or_default ref
+  val projection_mode : projection_mode or_default ref
   val unbox_along_intra_function_control_flow : bool or_default ref
   val backend_cse_at_toplevel : bool or_default ref
   val cse_depth : int or_default ref

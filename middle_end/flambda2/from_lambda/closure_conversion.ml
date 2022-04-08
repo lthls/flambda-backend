@@ -160,16 +160,21 @@ let close_const acc const =
   let named = Named.create_simple simple in
   acc, named, name
 
-let find_simple_from_id env id =
+let find_simple_from_id acc env id =
   match Env.find_simple_to_substitute_exn env id with
-  | simple -> simple
+  | simple -> acc, simple
   | exception Not_found -> (
     match Env.find_var_exn env id with
     | exception Not_found ->
-      Misc.fatal_errorf
-        "find_simple_from_id: Cannot find [Ident] %a in environment" Ident.print
-        id
-    | var -> Simple.var var)
+      begin match Env.find_projection env id with
+        | Some proj ->
+          Acc.simple_for_slot_projection acc (proj, Env.my_closure_exn env)
+        | None ->
+          Misc.fatal_errorf
+            "find_simple_from_id: Cannot find [Ident] %a in environment" Ident.print
+            id
+      end
+    | var -> acc, Simple.var var)
 
 (* CR mshinwell: Avoid the double lookup *)
 let find_simple acc env (simple : IR.simple) =
@@ -177,7 +182,7 @@ let find_simple acc env (simple : IR.simple) =
   | Const const ->
     let acc, simple, _ = close_const0 acc const in
     acc, simple
-  | Var id -> acc, find_simple_from_id env id
+  | Var id -> find_simple_from_id acc env id
 
 let find_simples acc env ids =
   List.fold_left_map (fun acc id -> find_simple acc env id) acc ids
@@ -676,7 +681,7 @@ let close_named acc env ~let_bound_var (named : IR.named)
     let acc, named, _name = close_const acc cst in
     k acc (Some named)
   | Get_tag var ->
-    let named = find_simple_from_id env var in
+    let acc, named = find_simple_from_id acc env var in
     let prim : Lambda_to_flambda_primitives_helpers.expr_primitive =
       Unary (Tag_immediate, Prim (Unary (Get_tag, Simple named)))
     in
@@ -693,7 +698,7 @@ let close_named acc env ~let_bound_var (named : IR.named)
       prim Debuginfo.none
       (fun acc named -> k acc (Some named))
   | End_region id ->
-    let named = find_simple_from_id env id in
+    let acc, named = find_simple_from_id acc env id in
     let prim : Lambda_to_flambda_primitives_helpers.expr_primitive =
       Unary (End_region, Simple named)
     in
@@ -853,7 +858,7 @@ let close_exact_or_unknown_apply acc env
        region_close = _
      } :
       IR.apply) callee_approx : Acc.t * Expr_with_acc.t =
-  let callee = find_simple_from_id env func in
+  let acc, callee = find_simple_from_id acc env func in
   let mode = Alloc_mode.from_lambda mode in
   let acc, call_kind =
     match kind with
@@ -917,7 +922,7 @@ let close_apply_cont acc env cont trap_action args : Acc.t * Expr_with_acc.t =
   Expr_with_acc.create_apply_cont acc apply_cont
 
 let close_switch acc env scrutinee (sw : IR.switch) : Acc.t * Expr_with_acc.t =
-  let scrutinee = find_simple_from_id env scrutinee in
+  let acc, scrutinee = find_simple_from_id acc env scrutinee in
   let untagged_scrutinee = Variable.create "untagged" in
   let untagged_scrutinee' = VB.create untagged_scrutinee Name_mode.normal in
   let untag =
@@ -1008,8 +1013,7 @@ let close_switch acc env scrutinee (sw : IR.switch) : Acc.t * Expr_with_acc.t =
         untag ~body
 
 let close_one_function acc ~external_env ~by_function_slot decl
-    ~has_lifted_closure ~value_slots_from_idents ~function_slots_from_idents
-    function_declarations =
+    ~has_lifted_closure ~value_slots_from_idents ~function_slots_from_idents =
   let acc = Acc.with_free_names Name_occurrences.empty acc in
   let body = Function_decl.body decl in
   let loc = Function_decl.loc decl in
@@ -1029,100 +1033,34 @@ let close_one_function acc ~external_env ~by_function_slot decl
       ~name:(Function_slot.to_string function_slot)
       compilation_unit
   in
-  let is_curried =
-    match Function_decl.kind decl with Curried _ -> true | Tupled -> false
-  in
-  (* The free variables are: - The parameters: direct substitution by
-     [Variable]s - The function being defined: accessible through [my_closure] -
-     Other functions in the set being defined: accessible from [my_closure] then
-     a [Project_function_slot] - Other free variables: accessible using
-     [Project_value_slot] from [my_closure]. Note that free variables
-     corresponding to predefined exception identifiers have been filtered out by
-     [close_functions], above. *)
-  let value_slots_to_bind, value_slots_for_idents =
-    Ident.Map.fold
-      (fun id value_slots_for_idents (to_bind, var_for_ident) ->
-        let var = Variable.create_with_same_name_as_ident id in
-        ( Variable.Map.add var value_slots_for_idents to_bind,
-          Ident.Map.add id var var_for_ident ))
-      value_slots_from_idents
-      (Variable.Map.empty, Ident.Map.empty)
-  in
   let coerce_to_deeper =
     Coercion.change_depth
       ~from:(Rec_info_expr.var my_depth)
       ~to_:(Rec_info_expr.var next_depth)
   in
-  if has_lifted_closure && not (Variable.Map.is_empty value_slots_to_bind)
+  let my_closure_simple =
+    Simple.with_coercion (Simple.var my_closure) coerce_to_deeper
+  in
+  if has_lifted_closure && not (Ident.Map.is_empty value_slots_from_idents)
   then
     Misc.fatal_errorf
       "Variables found in closure when trying to lift %a in \
        [Closure_conversion]."
       Ident.print our_let_rec_ident;
-  (* CR mshinwell: Remove "project_closure" names *)
-  let project_closure_to_bind, simples_for_project_closure =
-    if has_lifted_closure
-    then (* No projection needed *)
-      Variable.Map.empty, Ident.Map.empty
-    else
-      List.fold_left
-        (fun (to_bind, simples_for_idents) function_decl ->
-          let let_rec_ident = Function_decl.let_rec_ident function_decl in
-          let to_bind, var =
-            if Ident.same our_let_rec_ident let_rec_ident && is_curried
-            then
-              (* When the function being compiled is tupled, my_closure points
-                 to the curried version but let_rec_ident is called with tuple
-                 arguments, so the correct closure to bind is the one in the
-                 function_slots_from_idents map. *)
-              to_bind, my_closure
-              (* my_closure is already bound *)
-            else
-              let variable =
-                Variable.create_with_same_name_as_ident let_rec_ident
-              in
-              let function_slot =
-                Ident.Map.find let_rec_ident function_slots_from_idents
-              in
-              Variable.Map.add variable function_slot to_bind, variable
-          in
-          let simple = Simple.with_coercion (Simple.var var) coerce_to_deeper in
-          to_bind, Ident.Map.add let_rec_ident simple simples_for_idents)
-        (Variable.Map.empty, Ident.Map.empty)
-        (Function_decls.to_list function_declarations)
+  let closure_env =
+    Env.enter_function external_env ~params ~my_closure:my_closure_simple
+      ~my_depth ~my_function_slot:function_slot ~value_slots_from_idents
+      ~function_slots_from_idents
   in
-  let closure_env_without_parameters =
-    let empty_env = Env.clear_local_bindings external_env in
-    let env_with_vars =
-      Ident.Map.fold
-        (fun id var env ->
-          Simple.pattern_match
-            (find_simple_from_id external_env id)
-            ~const:(fun _ -> assert false)
-            ~name:(fun name ~coercion:_ ->
-              Env.add_approximation_alias (Env.add_var env id var) name
-                (Name.var var)))
-        value_slots_for_idents empty_env
-    in
-    Env.add_simple_to_substitute_map env_with_vars simples_for_project_closure
-  in
-  let closure_env_without_history =
-    List.fold_right
-      (fun (id, _) env ->
-        let env, _var = Env.add_var_like env id User_visible in
-        env)
-      params closure_env_without_parameters
-  in
-  let closure_env = Env.with_depth closure_env_without_history my_depth in
   let closure_env, absolute_history, relative_history =
-    let tracker = Env.inlining_history_tracker closure_env_without_history in
+    let tracker = Env.inlining_history_tracker closure_env in
     let absolute, relative =
       Inlining_history.Tracker.fundecl_of_scoped_location
         ~name:(Function_slot.name function_slot)
         ~path_to_root:(Env.path_to_root closure_env)
         loc tracker
     in
-    ( Env.use_inlining_history_tracker closure_env_without_history
+    ( Env.use_inlining_history_tracker closure_env
         (Inlining_history.Tracker.inside_function absolute),
       absolute,
       relative )
@@ -1157,38 +1095,6 @@ let close_one_function acc ~external_env ~by_function_slot decl
       Printexc.raise_with_backtrace Misc.Fatal_error bt
   in
   let contains_subfunctions = Acc.seen_a_function acc in
-  let my_closure' = Simple.var my_closure in
-  let acc, body =
-    (* CR mshinwell: These Project_function_slot operations should maybe be
-       inserted at the point of use rather than at the top of the function. We
-       should also check the behaviour of the backend w.r.t. CSE of projections
-       from closures. *)
-    Variable.Map.fold
-      (fun var move_to (acc, body) ->
-        let move : Flambda_primitive.unary_primitive =
-          Project_function_slot { move_from = function_slot; move_to }
-        in
-        let var = VB.create var Name_mode.normal in
-        let named =
-          Named.create_prim (Unary (move, my_closure')) Debuginfo.none
-        in
-        Let_with_acc.create acc (Bound_pattern.singleton var) named ~body)
-      project_closure_to_bind (acc, body)
-  in
-  let acc, body =
-    Variable.Map.fold
-      (fun var value_slot (acc, body) ->
-        let var = VB.create var Name_mode.normal in
-        let named =
-          Named.create_prim
-            (Unary
-               ( Project_value_slot { project_from = function_slot; value_slot },
-                 my_closure' ))
-            Debuginfo.none
-        in
-        Let_with_acc.create acc (Bound_pattern.singleton var) named ~body)
-      value_slots_to_bind (acc, body)
-  in
   let next_depth_expr = Rec_info_expr.succ (Rec_info_expr.var my_depth) in
   let bound =
     Bound_pattern.singleton (Bound_var.create next_depth Name_mode.normal)
@@ -1201,6 +1107,7 @@ let close_one_function acc ~external_env ~by_function_slot decl
     close_exn_continuation acc external_env
       (Function_decl.exn_continuation decl)
   in
+  let acc, body = Closure_conversion_aux.add_slots_at_function_entry acc body in
   assert (
     match Exn_continuation.extra_args exn_continuation with
     | [] -> true
@@ -1245,6 +1152,8 @@ let close_one_function acc ~external_env ~by_function_slot decl
     then Function_decl_inlining_decision_type.Stub
     else Function_decl_inlining_decision_type.Not_yet_decided
   in
+  (* Format.eprintf "Creating code %a@.Free names:@.%a@.@." Code_id.print
+     code_id Name_occurrences.print (Acc.free_names acc); *)
   let code =
     Code.create code_id ~params_and_body
       ~free_names_of_params_and_body:(Acc.free_names acc) ~params_arity
@@ -1351,8 +1260,7 @@ let close_functions acc external_env function_declarations =
           Acc.measure_cost_metrics acc ~f:(fun acc ->
               close_one_function acc ~external_env ~by_function_slot
                 function_decl ~has_lifted_closure:can_be_lifted
-                ~value_slots_from_idents ~function_slots_from_idents
-                function_declarations)
+                ~value_slots_from_idents ~function_slots_from_idents)
         in
         acc, expr)
       (acc, Function_slot.Map.empty)
@@ -1376,15 +1284,15 @@ let close_functions acc external_env function_declarations =
       approximations
   in
   let function_decls = Function_declarations.create funs in
-  let value_slots =
+  let acc, value_slots =
     Ident.Map.fold
-      (fun id value_slot map ->
-        let external_simple = find_simple_from_id external_env id in
+      (fun id value_slot (acc, map) ->
+        let acc, external_simple = find_simple_from_id acc external_env id in
         (* We're sure [external_simple] is a variable since
            [value_slot_from_idents] has already filtered constants and symbols
            out. *)
-        Value_slot.Map.add value_slot external_simple map)
-      value_slots_from_idents Value_slot.Map.empty
+        acc, Value_slot.Map.add value_slot external_simple map)
+      value_slots_from_idents (acc, Value_slot.Map.empty)
   in
   let set_of_closures =
     Set_of_closures.create ~value_slots
@@ -1534,14 +1442,20 @@ let wrap_partial_application acc env apply_continuation (apply : IR.apply)
   in
   let all_args = args @ List.map (fun (a, _) -> IR.Var a) params in
   let fbody acc env =
-    close_exact_or_unknown_apply acc env
-      { apply with
-        kind = Function;
-        args = all_args;
-        continuation = return_continuation;
-        exn_continuation
-      }
-      (Some approx)
+    let acc, body =
+      close_exact_or_unknown_apply acc env
+        { apply with
+          kind = Function;
+          args = all_args;
+          continuation = return_continuation;
+          exn_continuation
+        }
+        (Some approx)
+    in
+    (* Format.eprintf "Partial stub:@.Body =@ %a@.Free names =@ %a@.@."
+     *   Expr.print body
+     *   Name_occurrences.print (Acc.free_names acc); *)
+    acc, body
   in
   let attr =
     Lambda.
@@ -1578,7 +1492,7 @@ let wrap_partial_application acc env apply_continuation (apply : IR.apply)
         ~contains_no_escaping_local_allocs Recursive.Non_recursive ]
   in
   let body acc env =
-    let arg = find_simple_from_id env wrapper_id in
+    let acc, arg = find_simple_from_id acc env wrapper_id in
     let acc, apply_cont =
       Apply_cont_with_acc.create acc
         ~args_approx:[Env.find_value_approximation env arg]
@@ -1683,7 +1597,7 @@ type call_args_split =
   | Over_app of IR.simple list * IR.simple list
 
 let close_apply acc env (apply : IR.apply) : Acc.t * Expr_with_acc.t =
-  let callee = find_simple_from_id env apply.func in
+  let acc, callee = find_simple_from_id acc env apply.func in
   let approx = Env.find_value_approximation env callee in
   let code_info =
     match approx with
@@ -1757,9 +1671,15 @@ let close_apply acc env (apply : IR.apply) : Acc.t * Expr_with_acc.t =
         { apply with args; continuation = apply.continuation }
         (Some approx)
     | Partial_app (args, missing_args) ->
-      wrap_partial_application acc env apply.continuation apply approx args
-        missing_args ~arity ~num_trailing_local_params
-        ~contains_no_escaping_local_allocs
+      if Flambda_features.classic_mode ()
+      then
+        wrap_partial_application acc env apply.continuation apply approx args
+          missing_args ~arity ~num_trailing_local_params
+          ~contains_no_escaping_local_allocs
+      else
+        close_exact_or_unknown_apply acc env
+          { apply with args; continuation = apply.continuation }
+          None
     | Over_app (args, remaining_args) ->
       let full_args_call apply_continuation acc =
         close_exact_or_unknown_apply acc env

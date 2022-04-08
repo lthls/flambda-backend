@@ -23,6 +23,16 @@ module IR : sig
     | Var of Ident.t
     | Const of Lambda.structured_constant
 
+  type closure_projection =
+    | Project_function_slot of
+        { move_from : Function_slot.t;
+          move_to : Function_slot.t
+        }
+    | Project_value_slot of
+        { project_from : Function_slot.t;
+          value_slot : Value_slot.t
+        }
+
   type exn_continuation =
     { exn_handler : Continuation.t;
       extra_args : (simple * Lambda.value_kind) list
@@ -106,7 +116,15 @@ module Env : sig
     cmx_loader:Flambda_cmx.loader ->
     t
 
-  val clear_local_bindings : t -> t
+  val enter_function :
+    t ->
+    params:(Ident.t * Lambda.value_kind) list ->
+    my_closure:Simple.t (* With coercion *) ->
+    my_depth:Variable.t ->
+    my_function_slot:Function_slot.t ->
+    value_slots_from_idents:Value_slot.t Ident.Map.t ->
+    function_slots_from_idents:Function_slot.t Ident.Map.t ->
+    t
 
   val add_var : t -> Ident.t -> Variable.t -> t
 
@@ -129,6 +147,8 @@ module Env : sig
 
   val find_vars : t -> Ident.t list -> Variable.t list
 
+  val find_projection : t -> Ident.t -> IR.closure_projection option
+
   val add_global : t -> int -> Symbol.t -> t
 
   val find_global : t -> int -> Symbol.t
@@ -150,7 +170,7 @@ module Env : sig
 
   val current_depth : t -> Variable.t option
 
-  val with_depth : t -> Variable.t -> t
+  val my_closure_exn : t -> Simple.t
 
   val current_unit_id : t -> Ident.t
 
@@ -193,6 +213,9 @@ module Acc : sig
   val seen_a_function : t -> bool
 
   val with_seen_a_function : t -> bool -> t
+
+  val simple_for_slot_projection :
+    t -> (IR.closure_projection * Simple.t) -> t * Simple.t
 
   val add_declared_symbol : symbol:Symbol.t -> constant:Static_const.t -> t -> t
 
@@ -379,3 +402,5 @@ module Let_cont_with_acc : sig
     is_exn_handler:bool ->
     Acc.t * Expr_with_acc.t
 end
+
+val add_slots_at_function_entry : Acc.t -> Expr.t -> Acc.t * Expr.t

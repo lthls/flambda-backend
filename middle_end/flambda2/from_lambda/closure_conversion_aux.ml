@@ -21,6 +21,57 @@ module IR = struct
     | Var of Ident.t
     | Const of Lambda.structured_constant
 
+  type closure_projection =
+    | Project_function_slot of
+        { move_from : Function_slot.t;
+          move_to : Function_slot.t
+        }
+    | Project_value_slot of
+        { project_from : Function_slot.t;
+          value_slot : Value_slot.t
+        }
+
+  module Closure_projection0 = struct
+    type t = closure_projection * Simple.t
+
+    let compare (proj1, my_closure1) (proj2, my_closure2) =
+      let c = Simple.compare my_closure1 my_closure2 in
+      if c <> 0 then c
+      else
+      match proj1, proj2 with
+      | Project_function_slot { move_from = from1; move_to = to1; },
+        Project_function_slot { move_from = from2; move_to = to2; } ->
+        let c = Function_slot.compare from1 from2 in
+        if c = 0 then Function_slot.compare to1 to2
+        else c
+      | Project_value_slot { project_from = from1; value_slot = to1; },
+        Project_value_slot { project_from = from2; value_slot = to2; } ->
+        let c = Function_slot.compare from1 from2 in
+        if c = 0 then Value_slot.compare to1 to2
+        else c
+      | Project_function_slot _, Project_value_slot _ -> -1
+      | Project_value_slot _, Project_function_slot _ -> 1
+
+    let equal p1 p2 = compare p1 p2 = 0
+
+    let hash = Hashtbl.hash
+
+    let [@ocamlformat "disable"] print ppf (proj, my_closure) =
+      match proj with
+      | Project_function_slot { move_from; move_to; } ->
+        Format.fprintf ppf "Project@ @[%a@ ->@ %a@]@ %a"
+          Function_slot.print move_from
+          Function_slot.print move_to
+          Simple.print my_closure
+      | Project_value_slot { project_from; value_slot; } ->
+        Format.fprintf ppf "Project@ @[%a@ ->@ %a@]@ %a"
+          Function_slot.print project_from
+          Value_slot.print value_slot
+          Simple.print my_closure
+  end
+
+  module Closure_projection = Container_types.Make(Closure_projection0)
+
   type exn_continuation =
     { exn_handler : Continuation.t;
       extra_args : (simple * Lambda.value_kind) list
@@ -90,6 +141,13 @@ module IR = struct
       fprintf ppf "@[<2>(%a %a)@]" Printlambda.primitive prim
         (Format.pp_print_list ~pp_sep:Format.pp_print_space print_simple)
         args
+
+  let name_of_projection (proj : closure_projection) =
+    match proj with
+    | Project_function_slot { move_from = _; move_to; } ->
+      Function_slot.name move_to
+    | Project_value_slot { project_from = _; value_slot; } ->
+      Value_slot.name value_slot
 end
 
 module Inlining = struct
@@ -131,8 +189,10 @@ module Env = struct
     { variables : Variable.t Ident.Map.t;
       globals : Symbol.t Numeric_types.Int.Map.t;
       simples_to_substitute : Simple.t Ident.Map.t;
+      closure_variables : IR.closure_projection Ident.Map.t;
       current_unit_id : Ident.t;
       current_depth : Variable.t option;
+      current_closure : Simple.t option; (* Should have a coercion *)
       symbol_for_global : Ident.t -> Symbol.t;
       value_approximations : value_approximation Name.Map.t;
       approximation_for_external_symbol : Symbol.t -> value_approximation;
@@ -148,6 +208,11 @@ module Env = struct
   let big_endian t = t.big_endian
 
   let current_depth t = t.current_depth
+
+  let my_closure_exn t =
+    match t.current_closure with
+    | None -> Misc.fatal_error "Trying to access the closure of a toplevel environment"
+    | Some simple -> simple
 
   let approximation_loader loader =
     let externals = ref Symbol.Map.empty in
@@ -196,8 +261,10 @@ module Env = struct
     { variables = Ident.Map.empty;
       globals = Numeric_types.Int.Map.empty;
       simples_to_substitute = Ident.Map.empty;
+      closure_variables = Ident.Map.empty;
       current_unit_id = Compilation_unit.get_persistent_ident compilation_unit;
       current_depth = None;
+      current_closure = None;
       value_approximations = Name.Map.empty;
       approximation_for_external_symbol =
         (if Flambda_features.classic_mode ()
@@ -209,29 +276,58 @@ module Env = struct
       inlining_history_tracker = Inlining_history.Tracker.empty compilation_unit
     }
 
-  let clear_local_bindings
+  let enter_function
       { variables = _;
         globals;
         simples_to_substitute;
+        closure_variables = _;
         current_unit_id;
         symbol_for_global;
-        current_depth;
+        current_depth = _;
+        current_closure = _;
         value_approximations;
         approximation_for_external_symbol;
         big_endian;
         path_to_root;
         inlining_history_tracker
-      } =
+      } ~params ~my_closure ~my_depth ~my_function_slot
+      ~value_slots_from_idents ~function_slots_from_idents =
     let simples_to_substitute =
       Ident.Map.filter
         (fun _ simple -> not (Simple.is_var simple))
         simples_to_substitute
     in
-    { variables = Ident.Map.empty;
+    let closure_variables =
+      Ident.Map.fold (fun id value_slot closure_variables ->
+          Ident.Map.add id
+            (IR.Project_value_slot { project_from = my_function_slot; value_slot; })
+            closure_variables)
+        value_slots_from_idents Ident.Map.empty
+    in
+    let closure_variables, simples_to_substitute =
+      Ident.Map.fold (fun id function_slot (closure_variables, simples_to_substitute) ->
+          if Function_slot.equal function_slot my_function_slot then
+            closure_variables, Ident.Map.add id my_closure simples_to_substitute
+          else
+            Ident.Map.add id
+              (IR.Project_function_slot { move_from = my_function_slot; move_to = function_slot; })
+              closure_variables,
+            simples_to_substitute)
+        function_slots_from_idents (closure_variables, simples_to_substitute)
+    in
+    let variables =
+      List.fold_left (fun variables (id, _) ->
+          let var = Variable.create_with_same_name_as_ident ~user_visible:() id in
+          Ident.Map.add id var variables)
+        Ident.Map.empty params
+    in
+    { variables;
       globals;
       simples_to_substitute;
+      closure_variables;
       current_unit_id;
-      current_depth;
+      current_depth = Some my_depth;
+      current_closure = Some my_closure;
       value_approximations;
       approximation_for_external_symbol;
       symbol_for_global;
@@ -239,8 +335,6 @@ module Env = struct
       path_to_root;
       inlining_history_tracker
     }
-
-  let with_depth t depth_var = { t with current_depth = Some depth_var }
 
   let add_var t id var = { t with variables = Ident.Map.add id var t.variables }
 
@@ -288,6 +382,9 @@ module Env = struct
   let find_name_exn t id = Name.var (find_var_exn t id)
 
   let find_vars t ids = List.map (fun id -> find_var t id) ids
+
+  let find_projection t id =
+    Ident.Map.find_opt id t.closure_variables
 
   let add_global t pos symbol =
     { t with globals = Numeric_types.Int.Map.add pos symbol t.globals }
@@ -376,6 +473,7 @@ module Acc = struct
       shareable_constants : Symbol.t Static_const.Map.t;
       code : Code.t Code_id.Map.t;
       free_names : Name_occurrences.t;
+      slots_to_bind : Variable.t IR.Closure_projection.Map.t;
       continuation_applications : continuation_application Continuation.Map.t;
       cost_metrics : Cost_metrics.t;
       seen_a_function : bool;
@@ -401,6 +499,7 @@ module Acc = struct
       shareable_constants = Static_const.Map.empty;
       code = Code_id.Map.empty;
       free_names = Name_occurrences.empty;
+      slots_to_bind = IR.Closure_projection.Map.empty;
       continuation_applications = Continuation.Map.empty;
       cost_metrics = Cost_metrics.zero;
       seen_a_function = false;
@@ -420,6 +519,25 @@ module Acc = struct
   let free_names t = t.free_names
 
   let slot_offsets t = t.slot_offsets
+
+  let simple_for_slot_projection t proj =
+    match IR.Closure_projection.Map.find proj t.slots_to_bind with
+    | var -> t, Simple.var var
+    | exception Not_found ->
+      let var = Variable.create (IR.name_of_projection (fst proj)) in
+      let t =
+        { t with slots_to_bind =
+                   IR.Closure_projection.Map.add proj var t.slots_to_bind }
+      in
+      t, Simple.var var
+
+  let slots_to_bind t = t.slots_to_bind
+
+  let reset_slots_to_bind t =
+    { t with slots_to_bind = IR.Closure_projection.Map.empty }
+
+  let with_slots_to_bind t slots_to_bind =
+    { t with slots_to_bind }
 
   let add_declared_symbol ~symbol ~constant t =
     let declared_symbols = (symbol, constant) :: t.declared_symbols in
@@ -681,65 +799,46 @@ end
 
 open Flambda.Import
 
-module Expr_with_acc = struct
-  type t = Expr.t
-
-  let create_apply_cont acc apply_cont =
-    let acc =
-      Acc.increment_metrics
-        (Code_size.apply_cont apply_cont |> Cost_metrics.from_size)
-        acc
+module Slot_bindings = struct
+  let add_slots ~create_let acc expr slots_to_bind =
+    (* let print = not (IR.Closure_projection.Map.is_empty slots_to_bind) in
+     * if print then Format.eprintf "Backtrace:@.%s@." Printexc.(raw_backtrace_to_string (get_callstack 5));
+     * if print then Format.eprintf "Binding slots %a@." (IR.Closure_projection.Map.print Variable.print) slots_to_bind; *)
+    let slots_to_bind_now, slots_to_bind_later =
+      IR.Closure_projection.Map.partition (fun _ var ->
+          Name_occurrences.mem_var (Acc.free_names acc) var)
+        slots_to_bind
     in
-    acc, Expr.create_apply_cont apply_cont
-
-  let create_apply acc apply =
-    let acc =
-      Acc.increment_metrics
-        (Code_size.apply apply |> Cost_metrics.from_size)
-        acc
+    (* if print then Format.eprintf "Filtered %a@.@.@." (IR.Closure_projection.Map.print Variable.print) slots_to_bind_now; *)
+    let acc, expr =
+    IR.Closure_projection.Map.fold (fun (proj, my_closure) var (acc, body) ->
+        let prim : Flambda_primitive.t =
+          match proj with
+          | Project_function_slot { move_from; move_to; } ->
+            assert (not (Function_slot.equal move_from move_to));
+            Unary (Project_function_slot { move_from; move_to; }, my_closure)
+          | Project_value_slot { project_from; value_slot; } ->
+            Unary (Project_value_slot { project_from; value_slot; }, my_closure)
+        in
+        create_let acc (Bound_pattern.singleton (Bound_var.create var Name_mode.normal))
+          (Named.create_prim prim Debuginfo.none) ~body)
+      slots_to_bind (acc, expr)
     in
-    let acc = Acc.add_free_names (Apply_expr.free_names apply) acc in
-    let acc =
-      match Apply_expr.continuation apply with
-      | Never_returns -> acc
-      | Return cont -> Acc.mark_continuation_as_untrackable cont acc
-    in
-    let acc =
-      Acc.mark_continuation_as_untrackable
-        (Exn_continuation.exn_handler (Apply_expr.exn_continuation apply))
-        acc
-    in
-    acc, Expr.create_apply apply
+    Acc.with_slots_to_bind acc slots_to_bind_later, expr
 
-  let create_switch acc switch =
-    let acc =
-      Acc.increment_metrics
-        (Code_size.switch switch |> Cost_metrics.from_size)
-        acc
-    in
-    let acc = Acc.add_simple_to_free_names acc (Switch_expr.scrutinee switch) in
-    acc, Expr.create_switch switch
+  let add_all_slots ~create_let acc expr =
+    let slots_to_bind = Acc.slots_to_bind acc in
+    let acc = Acc.reset_slots_to_bind acc in
+    add_slots ~create_let acc expr slots_to_bind
 
-  let create_invalid acc reason =
-    let acc =
-      Acc.increment_metrics (Code_size.invalid |> Cost_metrics.from_size) acc
-    in
-    acc, Expr.create_invalid reason
-end
-
-module Apply_cont_with_acc = struct
-  let create acc ?trap_action ?args_approx cont ~args ~dbg =
-    let apply_cont = Apply_cont.create ?trap_action cont ~args ~dbg in
-    let acc = Acc.add_continuation_application ~cont args_approx acc in
-    let acc = Acc.add_free_names (Apply_cont.free_names apply_cont) acc in
-    acc, apply_cont
-
-  let goto acc cont =
-    create acc cont ~args:[] ?args_approx:None ~dbg:Debuginfo.none
+  let add_non_shared_slots ~create_let acc expr =
+    match Flambda_features.projection_mode () with
+    | No_sharing -> add_all_slots ~create_let acc expr
+    | Top_of_function -> acc, expr
 end
 
 module Let_with_acc = struct
-  let create acc let_bound named ~body =
+  let rec create acc let_bound named ~body =
     let is_unused_singleton =
       match Bound_pattern.must_be_singleton_opt let_bound with
       | Some var ->
@@ -787,7 +886,67 @@ module Let_with_acc = struct
       in
       let let_expr = Let.create let_bound named ~body ~free_names_of_body in
       let acc = Acc.add_free_names (Named.free_names named) acc in
-      acc, Expr.create_let let_expr
+      Slot_bindings.add_non_shared_slots ~create_let:create acc (Expr.create_let let_expr)
+end
+
+module Expr_with_acc = struct
+  type t = Expr.t
+
+  let add_non_shared_slots acc expr =
+    Slot_bindings.add_non_shared_slots ~create_let:Let_with_acc.create acc expr
+
+  let create_apply_cont acc apply_cont =
+    let acc =
+      Acc.increment_metrics
+        (Code_size.apply_cont apply_cont |> Cost_metrics.from_size)
+        acc
+    in
+    add_non_shared_slots acc (Expr.create_apply_cont apply_cont)
+
+  let create_apply acc apply =
+    let acc =
+      Acc.increment_metrics
+        (Code_size.apply apply |> Cost_metrics.from_size)
+        acc
+    in
+    let acc = Acc.add_free_names (Apply_expr.free_names apply) acc in
+    let acc =
+      match Apply_expr.continuation apply with
+      | Never_returns -> acc
+      | Return cont -> Acc.mark_continuation_as_untrackable cont acc
+    in
+    let acc =
+      Acc.mark_continuation_as_untrackable
+        (Exn_continuation.exn_handler (Apply_expr.exn_continuation apply))
+        acc
+    in
+    add_non_shared_slots acc (Expr.create_apply apply)
+
+  let create_switch acc switch =
+    let acc =
+      Acc.increment_metrics
+        (Code_size.switch switch |> Cost_metrics.from_size)
+        acc
+    in
+    let acc = Acc.add_simple_to_free_names acc (Switch_expr.scrutinee switch) in
+    add_non_shared_slots acc (Expr.create_switch switch)
+
+  let create_invalid acc reason =
+    let acc =
+      Acc.increment_metrics (Code_size.invalid |> Cost_metrics.from_size) acc
+    in
+    add_non_shared_slots acc (Expr.create_invalid reason)
+end
+
+module Apply_cont_with_acc = struct
+  let create acc ?trap_action ?args_approx cont ~args ~dbg =
+    let apply_cont = Apply_cont.create ?trap_action cont ~args ~dbg in
+    let acc = Acc.add_continuation_application ~cont args_approx acc in
+    let acc = Acc.add_free_names (Apply_cont.free_names apply_cont) acc in
+    acc, apply_cont
+
+  let goto acc cont =
+    create acc cont ~args:[] ?args_approx:None ~dbg:Debuginfo.none
 end
 
 module Continuation_handler_with_acc = struct
@@ -806,6 +965,12 @@ module Continuation_handler_with_acc = struct
 end
 
 module Let_cont_with_acc = struct
+  let add_non_shared_slots acc expr =
+    (* It's unlikely that we would have to bind slots around let conts, as they
+       should have been bound either in the body or the handler, but it's more
+       coherent to systematically call [add_non_shared_slots]. *)
+    Slot_bindings.add_non_shared_slots ~create_let:Let_with_acc.create acc expr
+
   let create_non_recursive acc cont handler ~body ~free_names_of_body
       ~cost_metrics_of_handler =
     let acc =
@@ -820,7 +985,7 @@ module Let_cont_with_acc = struct
         ~free_names_of_body:(Known free_names_of_body)
     in
     let acc = Acc.remove_continuation_from_free_names cont acc in
-    acc, expr
+    add_non_shared_slots acc expr
 
   let create_recursive acc handlers ~body ~cost_metrics_of_handlers =
     let acc =
@@ -835,7 +1000,7 @@ module Let_cont_with_acc = struct
         (fun cont _ acc -> Acc.remove_continuation_from_free_names cont acc)
         handlers acc
     in
-    acc, expr
+    add_non_shared_slots acc expr
 
   let build_recursive acc ~handlers ~body =
     let handlers_free_names, cost_metrics_of_handlers, acc, handlers =
@@ -889,3 +1054,11 @@ module Let_cont_with_acc = struct
       in
       Acc.add_free_names handler_free_names acc, expr
 end
+
+let add_slots_at_function_entry acc body =
+  match Flambda_features.projection_mode () with
+  | No_sharing ->
+    assert (IR.Closure_projection.Map.is_empty (Acc.slots_to_bind acc));
+    acc, body
+  | Top_of_function ->
+    Slot_bindings.add_all_slots ~create_let:Let_with_acc.create acc body

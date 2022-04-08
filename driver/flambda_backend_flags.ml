@@ -22,6 +22,7 @@ let default_heap_reduction_threshold = 500_000_000 / (Sys.word_size / 8)
 let heap_reduction_threshold = ref default_heap_reduction_threshold (* -heap-reduction-threshold *)
 
 type function_result_types = Never | Functors_only | All_functions
+type projection_mode = No_sharing | Top_of_function
 type opt_level = Oclassic | O2 | O3
 type 'a or_default = Set of 'a | Default
 
@@ -40,6 +41,7 @@ module Flambda2 = struct
   module Default = struct
     let classic_mode = false
     let join_points = false
+    let projection_mode = No_sharing
     let unbox_along_intra_function_control_flow = true
     let backend_cse_at_toplevel = false
     let cse_depth = 2
@@ -51,6 +53,7 @@ module Flambda2 = struct
   type flags = {
     classic_mode : bool;
     join_points : bool;
+    projection_mode : projection_mode;
     unbox_along_intra_function_control_flow : bool;
     backend_cse_at_toplevel : bool;
     cse_depth : int;
@@ -63,6 +66,7 @@ module Flambda2 = struct
   let default = {
     classic_mode = Default.classic_mode;
     join_points = Default.join_points;
+    projection_mode = Default.projection_mode;
     unbox_along_intra_function_control_flow = Default.unbox_along_intra_function_control_flow;
     backend_cse_at_toplevel = Default.backend_cse_at_toplevel;
     cse_depth = Default.cse_depth;
@@ -94,6 +98,7 @@ module Flambda2 = struct
 
   let classic_mode = ref Default
   let join_points = ref Default
+  let projection_mode = ref Default
   let unbox_along_intra_function_control_flow = ref Default
   let backend_cse_at_toplevel = ref Default
   let cse_depth = ref Default

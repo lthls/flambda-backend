@@ -87,6 +87,18 @@ let mk_no_flambda2_join_points f =
     (format_not_default Flambda2.Default.join_points)
 ;;
 
+let mk_flambda2_share_projections_by_function f =
+  "-flambda2-share-projections-by-function", Arg.Unit f,
+  Printf.sprintf " Generate a single closure load for each free variable\n\
+      \     (Flambda 2 only)"
+;;
+
+let mk_flambda2_no_share_projections f =
+  "-flambda2-no-share-projections", Arg.Unit f,
+  Printf.sprintf " Generate a closure load for each occurrence of a free\n\
+      \     variable (Flambda 2 only)"
+;;
+
 let mk_flambda2_unbox_along_intra_function_control_flow f =
   "-flambda2-unbox-along-intra-function-control-flow", Arg.Unit f,
   Printf.sprintf " Pass values within\n\
@@ -394,6 +406,8 @@ module type Flambda_backend_options = sig
 
   val flambda2_join_points : unit -> unit
   val no_flambda2_join_points : unit -> unit
+  val flambda2_share_projections_by_function : unit -> unit
+  val flambda2_no_share_projections : unit -> unit
   val flambda2_result_types_functors_only : unit -> unit
   val flambda2_result_types_all_functions : unit -> unit
   val no_flambda2_result_types : unit -> unit
@@ -459,6 +473,10 @@ struct
 
     mk_flambda2_join_points F.flambda2_join_points;
     mk_no_flambda2_join_points F.no_flambda2_join_points;
+    mk_flambda2_share_projections_by_function
+      F.flambda2_share_projections_by_function;
+    mk_flambda2_no_share_projections
+      F.flambda2_no_share_projections;
     mk_flambda2_result_types_functors_only
       F.flambda2_result_types_functors_only;
     mk_flambda2_result_types_all_functions
@@ -557,6 +575,10 @@ module Flambda_backend_options_impl = struct
 
   let flambda2_join_points = set Flambda2.join_points
   let no_flambda2_join_points = clear Flambda2.join_points
+  let flambda2_share_projections_by_function () =
+    Flambda2.projection_mode := Flambda_backend_flags.(Set Top_of_function)
+  let flambda2_no_share_projections () =
+    Flambda2.projection_mode := Flambda_backend_flags.(Set No_sharing)
   let flambda2_result_types_functors_only () =
     Flambda2.function_result_types := Flambda_backend_flags.Set Flambda_backend_flags.Functors_only
   let flambda2_result_types_all_functions () =
@@ -712,6 +734,22 @@ module Extra_params = struct
     | "gcpp-mangling" -> set' Flambda_backend_flags.use_cpp_mangling
     | "heap-reduction-threshold" -> set_int' Flambda_backend_flags.heap_reduction_threshold
     | "flambda2-join-points" -> set Flambda2.join_points
+    | "flambda2-share-projections-by-function" ->
+      Flambda2.projection_mode := Flambda_backend_flags.(Set Top_of_function);
+      true
+    | "flambda2-no-share-projections" ->
+      Flambda2.projection_mode := Flambda_backend_flags.(Set No_sharing);
+      true
+    | "flambda2-share-projections" ->
+      (match String.lowercase_ascii v with
+      | "top-of-function" ->
+        Flambda2.projection_mode := Flambda_backend_flags.(Set Top_of_function)
+      | "no-sharing" ->
+        Flambda2.projection_mode := Flambda_backend_flags.(Set No_sharing)
+      | _ ->
+        Misc.fatal_error "Syntax: flambda2-share-projections=\
+          top-of-function|no-sharing");
+      true
     | "flambda2-result-types" ->
       (match String.lowercase_ascii v with
       | "never" ->

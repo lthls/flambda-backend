@@ -31,6 +31,8 @@ module type Flambda_backend_options = sig
 
   val flambda2_join_points : unit -> unit
   val no_flambda2_join_points : unit -> unit
+  val flambda2_share_projections_by_function : unit -> unit
+  val flambda2_no_share_projections : unit -> unit
   val flambda2_result_types_functors_only : unit -> unit
   val flambda2_result_types_all_functions : unit -> unit
   val no_flambda2_result_types : unit -> unit
