@@ -16,7 +16,13 @@
 
 val flambda2_is_enabled : unit -> bool
 
+val force_classic_mode : unit -> unit
+
 val classic_mode : unit -> bool
+
+type projection_mode = No_sharing | Top_of_function
+
+val projection_mode : unit -> projection_mode
 
 val join_points : unit -> bool
 

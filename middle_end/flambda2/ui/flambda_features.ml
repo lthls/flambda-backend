@@ -25,9 +25,25 @@ let with_default (r : 'a Flambda_backend_flags.or_default)
       (Flambda_backend_flags.Flambda2.default_for_opt_level
          !Flambda_backend_flags.opt_level)
 
+let forced_classic_mode = ref false
+
+let force_classic_mode () = forced_classic_mode := true
+
 let classic_mode () =
-  !Flambda_backend_flags.Flambda2.classic_mode
-  |> with_default ~f:(fun d -> d.classic_mode)
+  !forced_classic_mode
+  || !Flambda_backend_flags.Flambda2.classic_mode
+     |> with_default ~f:(fun d -> d.classic_mode)
+
+type projection_mode = No_sharing | Top_of_function
+
+let projection_mode () : projection_mode =
+  let mode =
+    !Flambda_backend_flags.Flambda2.projection_mode
+    |> with_default ~f:(fun d -> d.projection_mode)
+  in
+  match mode with
+  | No_sharing -> No_sharing
+  | Top_of_function -> Top_of_function
 
 let join_points () =
   !Flambda_backend_flags.Flambda2.join_points
