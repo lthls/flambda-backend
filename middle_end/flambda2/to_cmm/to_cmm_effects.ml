@@ -23,16 +23,17 @@ type effects_and_coeffects_classification =
 let classify_by_effects_and_coeffects effs =
   (* See the comments on type [classification] in the .mli. *)
   match (effs : Effects_and_coeffects.t) with
-  | Arbitrary_effects, (Has_coeffects | No_coeffects)
-  | Only_generative_effects _, (Has_coeffects | No_coeffects) ->
+  | Arbitrary_effects, (Has_coeffects | No_coeffects), _
+  | Only_generative_effects _, (Has_coeffects | No_coeffects), _ ->
     Effect
-  | No_effects, Has_coeffects -> Coeffect_only
-  | No_effects, No_coeffects -> Pure
+  | No_effects, Has_coeffects, _ -> Coeffect_only
+  | No_effects, No_coeffects, _ -> Pure
 
 type let_binding_classification =
   | Regular
   | Drop_defining_expr
-  | May_inline
+  | May_inline_once
+  | Inline_and_duplicate
 
 let classify_let_binding var
     ~(effects_and_coeffects_of_defining_expr : Effects_and_coeffects.t)
@@ -58,8 +59,11 @@ let classify_let_binding var
        Whether inlining of _effectful_ expressions _actually occurs_ depends on
        the context. Currently this is very restricted, see comments in
        [To_cmm_primitive]. *)
-    May_inline
-  | More_than_one -> Regular
+    May_inline_once
+  | More_than_one -> (
+    match effects_and_coeffects_of_defining_expr with
+    | _, _, Delay -> Inline_and_duplicate
+    | _, _, Strict -> Regular)
 
 type continuation_handler_classification =
   | Regular
