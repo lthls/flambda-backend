@@ -274,6 +274,7 @@ let static_consts env r ~params_and_body bound_static static_consts =
     let r = R.add_gc_roots r roots in
     static_consts0 env r ~params_and_body bound_static static_consts
   with Misc.Fatal_error as e ->
+    let bt = Printexc.get_raw_backtrace () in
     (* Create a new "let symbol" with a dummy body to better print the bound
        symbols and static consts. *)
     let dummy_body = Expr.create_invalid To_cmm_dummy_body in
@@ -289,4 +290,4 @@ let static_consts env r ~params_and_body bound_static static_consts =
       (Flambda_colours.error ())
       (Flambda_colours.normal ())
       Expr.print tmp_let_symbol;
-    raise e
+    Printexc.raise_with_backtrace e bt

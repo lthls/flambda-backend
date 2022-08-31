@@ -304,6 +304,7 @@ let params_and_body env res code_id p ~fun_dbg ~translate_expr =
           ~exn_continuation params ~body ~my_closure ~is_my_closure_used
           ~translate_expr
       with Misc.Fatal_error as e ->
+        let bt = Printexc.get_raw_backtrace () in
         Format.eprintf
           "\n\
            %sContext is:%s translating function %a to Cmm with return cont %a, \
@@ -312,7 +313,7 @@ let params_and_body env res code_id p ~fun_dbg ~translate_expr =
           (Flambda_colours.normal ())
           Code_id.print code_id Continuation.print return_continuation
           Continuation.print exn_continuation Expr.print body;
-        raise e)
+        Printexc.raise_with_backtrace e bt)
 
 (* Translation of sets of closures. *)
 
@@ -435,7 +436,8 @@ let lift_set_of_closures env res ~body ~bound_vars layout set ~translate_expr =
       (fun acc cid v ->
         let v = Bound_var.var v in
         let sym = C.symbol ~dbg (Function_slot.Map.find cid closure_symbols) in
-        Env.bind_variable acc v ~inline:Env.Duplicate ~defining_expr:sym
+        let defining_expr = Env.splittable_no_args "soc_proj" sym Ece.pure_duplicatable in
+        Env.bind_variable acc v ~inline:Env.Must_inline_and_duplicate ~defining_expr
           ~effects_and_coeffects_of_defining_expr:Ece.pure_duplicatable)
       env cids bound_vars
   in
@@ -469,8 +471,9 @@ let let_dynamic_set_of_closures0 env res ~body ~bound_vars set
     C.make_alloc ~mode:(Alloc_mode.to_lambda closure_alloc_mode) dbg tag l
   in
   let soc_var = Variable.create "*set_of_closures*" in
+  let defining_expr = Env.simple csoc in
   let env =
-    Env.bind_variable env soc_var ~inline:Env.Do_not_inline ~defining_expr:csoc
+    Env.bind_variable env soc_var ~inline:Env.Do_not_inline ~defining_expr
       ~effects_and_coeffects_of_defining_expr:effs
   in
   (* Get from the env the cmm variable that was created and bound to the
@@ -479,7 +482,7 @@ let let_dynamic_set_of_closures0 env res ~body ~bound_vars set
   assert (
     match To_cmm_effects.classify_by_effects_and_coeffects peff with
     | Pure -> true
-    | Effect | Coeffect_only -> false);
+    | Generative_duplicable | Effect | Coeffect_only -> false);
   (* Helper function to get the a cmm expr for a closure offset *)
   let get_closure_by_offset env set_cmm function_slot =
     match
