@@ -436,8 +436,11 @@ let lift_set_of_closures env res ~body ~bound_vars layout set ~translate_expr =
       (fun acc cid v ->
         let v = Bound_var.var v in
         let sym = C.symbol ~dbg (Function_slot.Map.find cid closure_symbols) in
-        let defining_expr = Env.splittable_no_args "soc_proj" sym Ece.pure_duplicatable in
-        Env.bind_variable acc v ~inline:Env.Must_inline_and_duplicate ~defining_expr
+        let defining_expr =
+          Env.splittable_no_args "soc_proj" sym Ece.pure_duplicatable
+        in
+        Env.bind_variable acc v ~inline:Env.Must_inline_and_duplicate
+          ~defining_expr
           ~effects_and_coeffects_of_defining_expr:Ece.pure_duplicatable)
       env cids bound_vars
   in

@@ -24,11 +24,11 @@ type effects_and_coeffects_classification =
 let classify_by_effects_and_coeffects effs =
   (* See the comments on type [classification] in the .mli. *)
   match (effs : Effects_and_coeffects.t) with
-  | Only_generative_effects Immutable, No_coeffects, _ ->
-    Generative_duplicable
+  | Only_generative_effects Immutable, No_coeffects, _ -> Generative_duplicable
   | Arbitrary_effects, (Has_coeffects | No_coeffects), _
-  | Only_generative_effects (Mutable | Immutable | Immutable_unique),
-    (Has_coeffects | No_coeffects), _ ->
+  | ( Only_generative_effects (Mutable | Immutable | Immutable_unique),
+      (Has_coeffects | No_coeffects),
+      _ ) ->
     Effect
   | No_effects, Has_coeffects, _ -> Coeffect_only
   | No_effects, No_coeffects, _ -> Pure
@@ -56,7 +56,8 @@ let classify_let_binding var
          only be flushed by the env. *))
   | One -> (
     (* This case represents expressions that are guaranteed to be evaluated
-       exactly once at runtime (and thus do not include expressions inside loops).
+       exactly once at runtime (and thus do not include expressions inside
+       loops).
 
        Any defining expression used exactly once is considered for inlining at
        this stage. The environment is going to handle the details of preserving
@@ -71,8 +72,8 @@ let classify_let_binding var
     | _, _, Delay -> Must_inline_once
     | _, _, Strict -> May_inline_once)
   | More_than_one -> (
-      (* Note: expressions in loops are counted as having two occurrences to ensure
-         that they fall in this case *)
+    (* Note: expressions in loops are counted as having two occurrences to
+       ensure that they fall in this case *)
     match effects_and_coeffects_of_defining_expr with
     | _, _, Delay -> Must_inline_and_duplicate
     | _, _, Strict -> Regular)

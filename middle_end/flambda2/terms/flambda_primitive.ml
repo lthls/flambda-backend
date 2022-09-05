@@ -883,7 +883,9 @@ let effects_and_coeffects_of_unary_primitive p =
   | Duplicate_block { kind = _ } ->
     (* We have to assume that the fields might be mutable. (This information
        isn't currently propagated from [Lambda].) *)
-    Effects.Only_generative_effects Mutable, Coeffects.Has_coeffects, Placement.Strict
+    ( Effects.Only_generative_effects Mutable,
+      Coeffects.Has_coeffects,
+      Placement.Strict )
   | Is_int _ -> Effects.No_effects, Coeffects.No_coeffects, Placement.Strict
   | Get_tag ->
     (* [Obj.truncate] has now been removed. *)
@@ -1586,7 +1588,8 @@ let no_effects_or_coeffects t =
   match effects_and_coeffects t with
   | No_effects, No_coeffects, _ -> true
   | ( (No_effects | Only_generative_effects _ | Arbitrary_effects),
-      (No_coeffects | Has_coeffects), _ ) ->
+      (No_coeffects | Has_coeffects),
+      _ ) ->
     false
 
 let at_most_generative_effects t =
@@ -1623,7 +1626,8 @@ module Eligible_for_cse = struct
       | ( ( No_effects
           | Only_generative_effects (Immutable | Immutable_unique | Mutable)
           | Arbitrary_effects ),
-          (No_coeffects | Has_coeffects), _ ) ->
+          (No_coeffects | Has_coeffects),
+          _ ) ->
         false
     in
     if not ((not eligible) || effects_and_coeffects_ok)

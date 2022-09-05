@@ -33,9 +33,9 @@ type effects_and_coeffects_classification = private
           with an effectful expression. *)
   | Generative_duplicable
       (** Only immutable generative effects. These are tecnically effects (since
-          functions in the `Gc` module can read counters related to allocations),
-          but we are interested in moving allocation (e.g. for unboxing of numbers
-          in classic mode). *)
+          functions in the `Gc` module can read counters related to
+          allocations), but we are interested in moving allocation (e.g. for
+          unboxing of numbers in classic mode). *)
 
 (** Return the classification of an expression with the given effects and
     coeffects. *)
@@ -48,14 +48,14 @@ type let_binding_classification = private
   | Drop_defining_expr  (** The defining expression may be deleted. *)
   | Regular  (** Proceed as normal, do not inline the defining expression. *)
   | May_inline_once
-    (** The defining expression is guaranteed to be used once, and
-        may be inlined at the use site. *)
+      (** The defining expression is guaranteed to be used once, and may be
+          inlined at the use site. *)
   | Must_inline_once
-    (** The defining expression is guaranteed to be used once, and
-        must inlined at the use site. *)
+      (** The defining expression is guaranteed to be used once, and must
+          inlined at the use site. *)
   | Must_inline_and_duplicate
-    (** The defining expression must be inlined at all use sites,
-        and it is used multiple times (or inside a loop). *)
+      (** The defining expression must be inlined at all use sites, and it is
+          used multiple times (or inside a loop). *)
 
 val classify_let_binding :
   Variable.t ->

@@ -309,7 +309,7 @@ and let_expr0 env res let_expr (bound_pattern : Bound_pattern.t)
       bind_var_to_simple ~dbg env v ~num_normal_occurrences_of_bound_vars s
     in
     expr env res body
-  | Singleton v, Prim (p, dbg) ->
+  | Singleton v, Prim (p, dbg) -> (
     let v = Bound_var.var v in
     let effects_and_coeffects_of_prim =
       Flambda_primitive.effects_and_coeffects p
@@ -322,42 +322,40 @@ and let_expr0 env res let_expr (bound_pattern : Bound_pattern.t)
     let inline =
       match inline with
       (* It is can be useful to translate primitives of dropped expression
-         because it allows to inline (and thus remove from the env)
-         the arguments in it. *)
+         because it allows to inline (and thus remove from the env) the
+         arguments in it. *)
       | Drop_defining_expr | Regular -> Inline Do_not_inline
       | May_inline_once -> Inline May_inline_once
       | Must_inline_once -> Inline Must_inline_once
       | Must_inline_and_duplicate -> Inline Must_inline_and_duplicate
     in
-    begin match inline with
-      | Inline (Do_not_inline as inline)
-      | Inline (May_inline_once as inline) ->
-        let defining_expr, extra, env, res, args_effs =
-          To_cmm_primitive.prim_simple env res dbg p
-        in
-        let effects_and_coeffects_of_defining_expr =
-          Ece.join args_effs effects_and_coeffects_of_prim
-        in
-        let env =
-          Env.bind_variable ?extra env v ~inline
-            ~effects_and_coeffects_of_defining_expr ~defining_expr
-        in
-        expr env res body
-      | Inline (Must_inline_once as inline)
-      | Inline (Must_inline_and_duplicate as inline) ->
-        let defining_expr, extra, env, res, args_effs =
-          To_cmm_primitive.prim_complex env res dbg p
-            ~effects_and_coeffects_of_prim
-        in
-        let effects_and_coeffects_of_defining_expr =
-          Ece.join args_effs effects_and_coeffects_of_prim
-        in
-        let env =
-          Env.bind_variable ?extra env v ~inline
-            ~effects_and_coeffects_of_defining_expr ~defining_expr
-        in
-        expr env res body
-    end
+    match inline with
+    | Inline (Do_not_inline as inline) | Inline (May_inline_once as inline) ->
+      let defining_expr, extra, env, res, args_effs =
+        To_cmm_primitive.prim_simple env res dbg p
+      in
+      let effects_and_coeffects_of_defining_expr =
+        Ece.join args_effs effects_and_coeffects_of_prim
+      in
+      let env =
+        Env.bind_variable ?extra env v ~inline
+          ~effects_and_coeffects_of_defining_expr ~defining_expr
+      in
+      expr env res body
+    | Inline (Must_inline_once as inline)
+    | Inline (Must_inline_and_duplicate as inline) ->
+      let defining_expr, extra, env, res, args_effs =
+        To_cmm_primitive.prim_complex env res dbg p
+          ~effects_and_coeffects_of_prim
+      in
+      let effects_and_coeffects_of_defining_expr =
+        Ece.join args_effs effects_and_coeffects_of_prim
+      in
+      let env =
+        Env.bind_variable ?extra env v ~inline
+          ~effects_and_coeffects_of_defining_expr ~defining_expr
+      in
+      expr env res body)
   | Set_of_closures bound_vars, Set_of_closures soc ->
     To_cmm_set_of_closures.let_dynamic_set_of_closures env res ~body ~bound_vars
       ~num_normal_occurrences_of_bound_vars soc ~translate_expr:expr
@@ -614,8 +612,8 @@ and apply_expr env res apply =
       | [] ->
         let var = Variable.create "*apply_res*" in
         let env =
-          Env.bind_variable env var
-            ~inline:Do_not_inline ~defining_expr:(Env.simple call)
+          Env.bind_variable env var ~inline:Do_not_inline
+            ~defining_expr:(Env.simple call)
             ~effects_and_coeffects_of_defining_expr:effs
         in
         expr env res body

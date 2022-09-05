@@ -13,7 +13,6 @@
 (*                                                                        *)
 (**************************************************************************)
 
-
 (** {1 Translation environment} *)
 
 (** Environment for Flambda to Cmm translation *)
@@ -69,7 +68,8 @@ type extra_info =
 (** Create (and bind) a Cmm variable for the given Flambda variable, returning
     the new environment and the created variable. Will produce a fatal error if
     the given variable is already bound. *)
-val create_bound_parameter : t -> Variable.t -> t * Backend_var.With_provenance.t
+val create_bound_parameter :
+  t -> Variable.t -> t * Backend_var.With_provenance.t
 
 (** Same as {!create_variable} but for a list of variables. *)
 val create_bound_parameters :
@@ -123,16 +123,18 @@ val create_bound_parameters :
     calls or branching control flow, depends on decisions outside of this module
     (e.g. in [To_cmm_expr]).
 
-    Additionally, bindings that must be inlined must be treated with special care.
-    Most notably, most of the time, we are in the case of a binding "let x = prim(args)"
-    where the primitive 'prim' is marked as `Delay`, which we translate as Must_inline.
-    In such cases, we want to inline the primitive itself, but not necessarily its arguments.
-    To correctly handle such cases, we have a notion of "complex" bound argument that, in addition
-    to a cmm expression, also contains the arguments and a way to re-build the expression.
-*)
+    Additionally, bindings that must be inlined must be treated with special
+    care. Most notably, most of the time, we are in the case of a binding "let x
+    = prim(args)" where the primitive 'prim' is marked as `Delay`, which we
+    translate as Must_inline. In such cases, we want to inline the primitive
+    itself, but not necessarily its arguments. To correctly handle such cases,
+    we have a notion of "complex" bound argument that, in addition to a cmm
+    expression, also contains the arguments and a way to re-build the
+    expression. *)
 
 (** Some uniques and different types *)
 type simple = Simple
+
 type complex = Complex
 
 (** Inlining decision of bound expressions *)
@@ -144,15 +146,15 @@ type _ inline =
       (** Akin to systematic substitutions, it should not be used for
           (co)effectful expressions *)
 
-(** The type of expression that can be bound.  *)
+(** The type of expression that can be bound. *)
 type _ bound_expr
 
 (** A simple cmm bound expression *)
 val simple : Cmm.expression -> simple bound_expr
 
-(** A bound expr tha can be splitted if needed. This is used for primitives
-    that must be inlined, but whose arguments may not be inlinable or duplicable,
-    so that we can split the expression to be inliend from its arguments if/when
+(** A bound expr tha can be splitted if needed. This is used for primitives that
+    must be inlined, but whose arguments may not be inlinable or duplicable, so
+    that we can split the expression to be inliend from its arguments if/when
     needed. *)
 val splittable :
   string ->
@@ -160,8 +162,8 @@ val splittable :
   (Cmm.expression list -> Cmm.expression * Effects_and_coeffects.t) ->
   complex bound_expr
 
-(** Shorthand to bind a zero-arity cmm expression (i.e. no arguments)
-    that must be inlined. *)
+(** Shorthand to bind a zero-arity cmm expression (i.e. no arguments) that must
+    be inlined. *)
 val splittable_no_args :
   string -> Cmm.expression -> Effects_and_coeffects.t -> complex bound_expr
 
