@@ -30,9 +30,6 @@ end
    in particular that effectful bindings get placed exactly once and that other
    bindings are not duplicated. *)
 
-(* Wrapper type used when translating primitive bindings *)
-type any_inline = Inline : _ Env.inline -> any_inline
-
 (* Bind a Cmm variable to the result of translating a [Simple] into Cmm. *)
 
 let bind_var_to_simple ~dbg env v ~num_normal_occurrences_of_bound_vars s =
@@ -319,18 +316,7 @@ and let_expr0 env res let_expr (bound_pattern : Bound_pattern.t)
         ~num_normal_occurrences_of_bound_vars
         ~effects_and_coeffects_of_defining_expr:effects_and_coeffects_of_prim
     in
-    let inline =
-      match inline with
-      (* It is can be useful to translate primitives of dropped expression
-         because it allows to inline (and thus remove from the env) the
-         arguments in it. *)
-      | Drop_defining_expr | Regular -> Inline Do_not_inline
-      | May_inline_once -> Inline May_inline_once
-      | Must_inline_once -> Inline Must_inline_once
-      | Must_inline_and_duplicate -> Inline Must_inline_and_duplicate
-    in
-    match inline with
-    | Inline (Do_not_inline as inline) | Inline (May_inline_once as inline) ->
+    let simple_case (inline : Env.simple Env.inline) =
       let defining_expr, extra, env, res, args_effs =
         To_cmm_primitive.prim_simple env res dbg p
       in
@@ -342,8 +328,8 @@ and let_expr0 env res let_expr (bound_pattern : Bound_pattern.t)
           ~effects_and_coeffects_of_defining_expr ~defining_expr
       in
       expr env res body
-    | Inline (Must_inline_once as inline)
-    | Inline (Must_inline_and_duplicate as inline) ->
+    in
+    let complex_case (inline : Env.complex Env.inline) =
       let defining_expr, extra, env, res, args_effs =
         To_cmm_primitive.prim_complex env res dbg p
           ~effects_and_coeffects_of_prim
@@ -355,7 +341,16 @@ and let_expr0 env res let_expr (bound_pattern : Bound_pattern.t)
         Env.bind_variable ?extra env v ~inline
           ~effects_and_coeffects_of_defining_expr ~defining_expr
       in
-      expr env res body)
+      expr env res body
+    in
+    match inline with
+    (* It can be useful to translate a dropped expression
+       because it allows to inline (and thus remove from the env) the
+       arguments in it. *)
+    | Drop_defining_expr | Regular -> simple_case Do_not_inline
+    | May_inline_once -> simple_case May_inline_once
+    | Must_inline_once -> complex_case Must_inline_once
+    | Must_inline_and_duplicate -> complex_case Must_inline_and_duplicate)
   | Set_of_closures bound_vars, Set_of_closures soc ->
     To_cmm_set_of_closures.let_dynamic_set_of_closures env res ~body ~bound_vars
       ~num_normal_occurrences_of_bound_vars soc ~translate_expr:expr
