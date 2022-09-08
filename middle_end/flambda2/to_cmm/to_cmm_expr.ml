@@ -36,12 +36,8 @@ let bind_var_to_simple ~dbg env v ~num_normal_occurrences_of_bound_vars s =
   let defining_expr, env, effects_and_coeffects_of_defining_expr =
     C.simple ~dbg env s
   in
-  Env.bind_let_variable env v ~effects_and_coeffects_of_defining_expr
-    ~defining_expr
-    ~inline:
-      (To_cmm_effects.classify_let_binding v
-         ~num_normal_occurrences_of_bound_vars
-         ~effects_and_coeffects_of_defining_expr)
+  Env.bind_variable env v ~effects_and_coeffects_of_defining_expr ~defining_expr
+    ~num_normal_occurrences_of_bound_vars
 
 (* Helpers for the translation of [Apply] expressions. *)
 
@@ -324,7 +320,7 @@ and let_expr0 env res let_expr (bound_pattern : Bound_pattern.t)
         Ece.join args_effs effects_and_coeffects_of_prim
       in
       let env =
-        Env.bind_variable ?extra env v ~inline
+        Env.bind_variable_to_primitive ?extra env v ~inline
           ~effects_and_coeffects_of_defining_expr ~defining_expr
       in
       expr env res body
@@ -338,15 +334,14 @@ and let_expr0 env res let_expr (bound_pattern : Bound_pattern.t)
         Ece.join args_effs effects_and_coeffects_of_prim
       in
       let env =
-        Env.bind_variable ?extra env v ~inline
+        Env.bind_variable_to_primitive ?extra env v ~inline
           ~effects_and_coeffects_of_defining_expr ~defining_expr
       in
       expr env res body
     in
     match inline with
-    (* It can be useful to translate a dropped expression
-       because it allows to inline (and thus remove from the env) the
-       arguments in it. *)
+    (* It can be useful to translate a dropped expression because it allows to
+       inline (and thus remove from the env) the arguments in it. *)
     | Drop_defining_expr | Regular -> simple_case Do_not_inline
     | May_inline_once -> simple_case May_inline_once
     | Must_inline_once -> complex_case Must_inline_once
@@ -591,10 +586,7 @@ and apply_expr env res apply =
         Continuation.print k Apply.print apply
     in
     match Env.get_continuation env k with
-    | Jump { param_types = []; cont } ->
-      (* Case 2 *)
-      let wrap, _ = Env.flush_delayed_lets env in
-      wrap (C.sequence call (C.cexit cont [] [])), res
+    | Jump { param_types = []; cont = _ } -> unsupported ()
     | Jump { param_types = [_]; cont } ->
       (* Case 2 *)
       let wrap, _ = Env.flush_delayed_lets env in
@@ -604,24 +596,13 @@ and apply_expr env res apply =
       (* Case 3 *)
       let handler_params = Bound_parameters.to_list handler_params in
       match handler_params with
-      | [] ->
-        let var = Variable.create "*apply_res*" in
-        let env =
-          Env.bind_variable env var ~inline:Do_not_inline
-            ~defining_expr:(Env.simple call)
-            ~effects_and_coeffects_of_defining_expr:effs
-        in
-        expr env res body
+      | [] -> unsupported ()
       | [param] ->
         let var = Bound_parameter.var param in
         let env =
-          Env.bind_let_variable env var
-            ~effects_and_coeffects_of_defining_expr:effs ~defining_expr:call
-            ~inline:
-              (To_cmm_effects.classify_let_binding var
-                 ~num_normal_occurrences_of_bound_vars:
-                   handler_params_occurrences
-                 ~effects_and_coeffects_of_defining_expr:effs)
+          Env.bind_variable env var ~effects_and_coeffects_of_defining_expr:effs
+            ~defining_expr:call
+            ~num_normal_occurrences_of_bound_vars:handler_params_occurrences
         in
         expr env res body
       | _ :: _ -> unsupported ())

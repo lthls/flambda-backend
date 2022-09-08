@@ -162,14 +162,14 @@ val splittable :
   (Cmm.expression list -> Cmm.expression * Effects_and_coeffects.t) ->
   complex bound_expr
 
-(** Shorthand to bind a zero-arity cmm expression (i.e. no arguments) that must
-    be inlined. *)
-val splittable_no_args :
+(** Shorthand to bind a cmm expression that must be inlined. The expression must
+    be duplicatable. *)
+val complex_no_split :
   string -> Cmm.expression -> Effects_and_coeffects.t -> complex bound_expr
 
-(** Bind a variable to the given Cmm expression, to allow for delaying the
-    let-binding. *)
-val bind_variable :
+(** Bind a variable, with support for splitting duplicatable primitives with
+    non-duplicatable arguments. *)
+val bind_variable_to_primitive :
   ?extra:extra_info ->
   t ->
   Variable.t ->
@@ -180,12 +180,12 @@ val bind_variable :
 
 (** Bind a variable to the given Cmm expression, to allow for delaying the
     let-binding. *)
-val bind_let_variable :
+val bind_variable :
   ?extra:extra_info ->
   t ->
   Variable.t ->
-  inline:To_cmm_effects.let_binding_classification ->
   defining_expr:Cmm.expression ->
+  num_normal_occurrences_of_bound_vars:Num_occurrences.t Variable.Map.t ->
   effects_and_coeffects_of_defining_expr:Effects_and_coeffects.t ->
   t
 

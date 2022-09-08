@@ -271,7 +271,7 @@ let simple cmm_expr = Simple { cmm_expr }
 
 let splittable name args make_expr = Splittable { name; args; make_expr }
 
-let splittable_no_args name cmm_expr effs =
+let complex_no_split name cmm_expr effs =
   splittable name [] (fun _ -> cmm_expr, effs)
 
 let is_cmm_simple cmm =
@@ -318,7 +318,7 @@ let create_binding (type a) ?extra env effs var ~(inline : a inline)
   | Simple _ | Split _ | Splittable _ ->
     create_binding_aux ?extra env effs var ~inline bound_expr
 
-let bind_variable (type a) ?extra env var ~inline
+let bind_variable_with_decision (type a) ?extra env var ~inline
     ~(defining_expr : a bound_expr) ~effects_and_coeffects_of_defining_expr:effs
     =
   let env, binding = create_binding ?extra env ~inline effs var defining_expr in
@@ -362,34 +362,44 @@ let bind_variable (type a) ?extra env var ~inline
       in
       { env with stages })
 
-let bind_let_variable ?extra env var ~inline ~defining_expr
+let bind_variable ?extra env var ~defining_expr
+    ~num_normal_occurrences_of_bound_vars
     ~effects_and_coeffects_of_defining_expr =
-  match (inline : To_cmm_effects.let_binding_classification) with
+  let inline =
+    To_cmm_effects.classify_let_binding var
+      ~effects_and_coeffects_of_defining_expr
+      ~num_normal_occurrences_of_bound_vars
+  in
+  match inline with
   | Drop_defining_expr -> env
   | Regular ->
     let defining_expr = simple defining_expr in
-    bind_variable ?extra env var ~effects_and_coeffects_of_defining_expr
-      ~defining_expr ~inline:Do_not_inline
+    bind_variable_with_decision ?extra env var
+      ~effects_and_coeffects_of_defining_expr ~defining_expr
+      ~inline:Do_not_inline
   | May_inline_once ->
     let defining_expr = simple defining_expr in
-    bind_variable ?extra env var ~effects_and_coeffects_of_defining_expr
-      ~defining_expr ~inline:May_inline_once
+    bind_variable_with_decision ?extra env var
+      ~effects_and_coeffects_of_defining_expr ~defining_expr
+      ~inline:May_inline_once
   | Must_inline_once ->
     let name = Format.asprintf "%a" Printcmm.expression defining_expr in
     let defining_expr =
-      splittable_no_args name defining_expr
-        effects_and_coeffects_of_defining_expr
+      complex_no_split name defining_expr effects_and_coeffects_of_defining_expr
     in
-    bind_variable ?extra env var ~effects_and_coeffects_of_defining_expr
-      ~defining_expr ~inline:Must_inline_once
+    bind_variable_with_decision ?extra env var
+      ~effects_and_coeffects_of_defining_expr ~defining_expr
+      ~inline:Must_inline_once
   | Must_inline_and_duplicate ->
     let name = Format.asprintf "%a" Printcmm.expression defining_expr in
     let defining_expr =
-      splittable_no_args name defining_expr
-        effects_and_coeffects_of_defining_expr
+      complex_no_split name defining_expr effects_and_coeffects_of_defining_expr
     in
-    bind_variable ?extra env var ~effects_and_coeffects_of_defining_expr
-      ~defining_expr ~inline:Must_inline_and_duplicate
+    bind_variable_with_decision ?extra env var
+      ~effects_and_coeffects_of_defining_expr ~defining_expr
+      ~inline:Must_inline_and_duplicate
+
+let bind_variable_to_primitive = bind_variable_with_decision
 
 (* Variable lookup (for potential inlining) *)
 
