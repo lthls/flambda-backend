@@ -152,14 +152,16 @@ type _ bound_expr
 (** A simple cmm bound expression *)
 val simple : Cmm.expression -> simple bound_expr
 
-(** A bound expr tha can be splitted if needed. This is used for primitives that
-    must be inlined, but whose arguments may not be inlinable or duplicable, so
-    that we can split the expression to be inliend from its arguments if/when
-    needed. *)
-val splittable :
+(** A bound expr that can be splitted if needed. This is used for primitives
+    that must be inlined, but whose arguments may not be inlinable or
+    duplicable, so that we can split the expression to be inliend from its
+    arguments if/when needed. The effects that are passed must correspond
+    respectively to each individual argument and to the primitive itself. *)
+val splittable_primitive :
   string ->
   (Cmm.expression * Effects_and_coeffects.t) list ->
-  (Cmm.expression list -> Cmm.expression * Effects_and_coeffects.t) ->
+  Effects_and_coeffects.t ->
+  (Cmm.expression list -> Cmm.expression) ->
   complex bound_expr
 
 (** Bind a variable, with support for splitting duplicatable primitives with

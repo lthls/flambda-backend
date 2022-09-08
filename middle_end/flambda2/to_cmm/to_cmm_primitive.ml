@@ -750,14 +750,14 @@ let prim_complex ~effects_and_coeffects_of_prim env res dbg p =
     | Nullary prim ->
       let prim' = P.Without_args.Nullary prim in
       let extra, expr = nullary_primitive env dbg prim in
-      let make_expr _ = expr, effects_and_coeffects_of_prim in
+      let make_expr _ = expr in
       prim', make_expr, [], extra, env, res, Ece.pure
     | Unary (unary, x) ->
       let prim' = P.Without_args.Unary unary in
       let x, env, eff = arg env x in
       let extra, res, expr = unary_primitive env res dbg unary x in
       let make_expr = function
-        | [arg] -> expr arg, effects_and_coeffects_of_prim
+        | [arg] -> expr arg
         | _ -> Misc.fatal_errorf "bad arity for split unary primitive"
       in
       prim', make_expr, [x, eff], extra, env, res, eff
@@ -767,9 +767,8 @@ let prim_complex ~effects_and_coeffects_of_prim env res dbg p =
       let y, env, effy = arg env y in
       let effs = Ece.join effx effy in
       let make_expr = function
-        | [x; y] ->
-          binary_primitive env dbg binary x y, effects_and_coeffects_of_prim
-        | _ -> Misc.fatal_errorf "bar arity for split binary primitive"
+        | [x; y] -> binary_primitive env dbg binary x y
+        | _ -> Misc.fatal_errorf "bad arity for split binary primitive"
       in
       prim', make_expr, [x, effx; y, effy], None, env, res, effs
     | Ternary (ternary, x, y, z) ->
@@ -779,8 +778,7 @@ let prim_complex ~effects_and_coeffects_of_prim env res dbg p =
       let z, env, effz = arg env z in
       let effs = Ece.join (Ece.join effx effy) effz in
       let make_expr = function
-        | [x; y; z] ->
-          ternary_primitive env dbg ternary x y z, effects_and_coeffects_of_prim
+        | [x; y; z] -> ternary_primitive env dbg ternary x y z
         | _ -> Misc.fatal_errorf "bad arity for split ternary primitive"
       in
       prim', make_expr, [x, effx; y, effy; z, effz], None, env, res, effs
@@ -789,11 +787,11 @@ let prim_complex ~effects_and_coeffects_of_prim env res dbg p =
       let args, env, effs =
         arg_list' ?consider_inlining_effectful_expressions ~dbg env l
       in
-      let make_expr args =
-        variadic_primitive env dbg variadic args, effects_and_coeffects_of_prim
-      in
+      let make_expr args = variadic_primitive env dbg variadic args in
       prim', make_expr, args, None, env, res, effs
   in
   let name = Format.asprintf "%a" P.Without_args.print prim' in
-  let bound_expr = Env.splittable name args make_expr in
+  let bound_expr =
+    Env.splittable_primitive name args effects_and_coeffects_of_prim make_expr
+  in
   bound_expr, extra, env, res, effs

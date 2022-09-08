@@ -44,13 +44,30 @@ type _ inline =
   | Must_inline_once : complex inline
   | Must_inline_and_duplicate : complex inline
 
+(* Note on the effects of splittable bindings:
+
+   The arguments are stored with their effects. This means that if we need to
+   split the binding, we can re-bind each argument with its correct effects.
+
+   The [prim_effects] field stores the effects of the primitive itself (the part
+   of the binding that can be duplicated).
+
+   When the binding is inlined without splitting, these effects are not used;
+   instead the effects of the whole expression are used (they are stored
+   alongside the binding, as for normal bindings).
+
+   When the binding is split, [make_expr] is called on variables only, and the
+   effects of the resulting expression are assumed to be exactly
+   [prim_effects]. *)
 type _ bound_expr =
   | Simple : { cmm_expr : Cmm.expression } -> simple bound_expr
   | Split : { cmm_expr : Cmm.expression } -> complex bound_expr
   | Splittable :
       { name : string;
+        (* For debugging purposes only *)
         args : (Cmm.expression * Ece.t) list;
-        make_expr : Cmm.expression list -> Cmm.expression * Ece.t
+        prim_effects : Ece.t;
+        make_expr : Cmm.expression list -> Cmm.expression
       }
       -> complex bound_expr
 
@@ -137,7 +154,7 @@ let [@ocamlformat "disable"] print_bound_expr (type a) ppf (b : a bound_expr) =
   match b with
   | Simple { cmm_expr; } | Split { cmm_expr; } ->
     Printcmm.expression ppf cmm_expr
-  | Splittable { name; args; make_expr = _; } ->
+  | Splittable { name; args; prim_effects = _; make_expr = _; } ->
     Format.fprintf ppf "@[<hov 1>(\
       @[<hov 1>(name@ %s)@]@ \
       @[<hov 1>(args@ @[<hov 1>(%a)@])@]\
@@ -269,10 +286,11 @@ let next_order = ref (-1)
 
 let simple cmm_expr = Simple { cmm_expr }
 
-let splittable name args make_expr = Splittable { name; args; make_expr }
+let splittable_primitive name args prim_effects make_expr =
+  Splittable { name; args; prim_effects; make_expr }
 
 let complex_no_split name cmm_expr effs =
-  splittable name [] (fun _ -> cmm_expr, effs)
+  splittable_primitive name [] effs (fun _ -> cmm_expr)
 
 let is_cmm_simple cmm =
   match[@ocaml.warning "-4"] (cmm : Cmm.expression) with
@@ -406,7 +424,7 @@ let bind_variable_to_primitive = bind_variable_with_decision
 let split_complex_binding (binding : complex binding) =
   match binding.bound_expr with
   | Split _ -> None
-  | Splittable { name = _; args; make_expr } ->
+  | Splittable { name = _; args; prim_effects; make_expr } ->
     let (new_bindings, _), new_cmm_args =
       List.fold_left_map
         (fun (new_bindings, order) (cmm_arg, arg_effs) ->
@@ -433,8 +451,8 @@ let split_complex_binding (binding : complex binding) =
         ([], binding.order - 1)
         args
     in
-    let new_cmm_expr, new_effs = make_expr new_cmm_args in
-    (match To_cmm_effects.classify_by_effects_and_coeffects new_effs with
+    let new_cmm_expr = make_expr new_cmm_args in
+    (match To_cmm_effects.classify_by_effects_and_coeffects prim_effects with
     | Pure | Generative_duplicable -> ()
     | Effect | Coeffect_only ->
       Misc.fatal_errorf
@@ -442,7 +460,7 @@ let split_complex_binding (binding : complex binding) =
          coeffects, since it can be moved around to be inlined.");
     let split_binding =
       { order = binding.order;
-        effs = new_effs;
+        effs = prim_effects;
         inline = binding.inline;
         bound_expr = Split { cmm_expr = new_cmm_expr };
         cmm_var = binding.cmm_var
@@ -459,8 +477,8 @@ let will_inline_simple env { effs; bound_expr = Simple { cmm_expr }; _ } =
 let will_inline_complex env { effs; bound_expr; _ } =
   match bound_expr with
   | Split { cmm_expr } -> cmm_expr, env, effs
-  | Splittable { name = _; args; make_expr } ->
-    let cmm_expr, _ = make_expr (List.map fst args) in
+  | Splittable { name = _; args; prim_effects = _; make_expr } ->
+    let cmm_expr = make_expr (List.map fst args) in
     cmm_expr, env, effs
 
 let will_not_inline_simple env { cmm_var; bound_expr = Simple _; _ } =
