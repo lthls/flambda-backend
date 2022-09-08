@@ -162,11 +162,6 @@ val splittable :
   (Cmm.expression list -> Cmm.expression * Effects_and_coeffects.t) ->
   complex bound_expr
 
-(** Shorthand to bind a cmm expression that must be inlined. The expression must
-    be duplicatable. *)
-val complex_no_split :
-  string -> Cmm.expression -> Effects_and_coeffects.t -> complex bound_expr
-
 (** Bind a variable, with support for splitting duplicatable primitives with
     non-duplicatable arguments. *)
 val bind_variable_to_primitive :
