@@ -53,28 +53,18 @@ type meet_expanded_head_result =
 
 exception Bottom_meet
 
-let meet_alloc_mode (alloc_mode1 : Alloc_mode.t Or_unknown.t)
-    (alloc_mode2 : Alloc_mode.t Or_unknown.t) :
-    Alloc_mode.t Or_unknown.t Or_bottom.t =
+let meet_alloc_mode (alloc_mode1 : Alloc_mode.t)
+    (alloc_mode2 : Alloc_mode.t) :
+    Alloc_mode.t =
   match alloc_mode1, alloc_mode2 with
-  | Unknown, Unknown -> Ok Unknown
-  | Unknown, Known _ -> Ok alloc_mode2
-  | Known _, Unknown -> Ok alloc_mode1
-  | Known Heap, Known Heap -> Ok (Known Alloc_mode.heap)
-  | Known Local, Known Local -> Ok (Known (Alloc_mode.local ()))
-  | Known Heap, Known Local | Known Local, Known Heap ->
-    (* It is not safe to pick either [Heap] or [Local] and moreover we should
-       never be in this situation by virtue of the OCaml type checker; it is
-       bottom. *)
-    Bottom
+  | Must_be_heap, Must_be_heap | May_be_local, May_be_local -> alloc_mode1
+  | Must_be_heap, May_be_local | May_be_local, Must_be_heap -> Alloc_mode.must_be_heap
 
-let join_alloc_mode (alloc_mode1 : Alloc_mode.t Or_unknown.t)
-    (alloc_mode2 : Alloc_mode.t Or_unknown.t) : Alloc_mode.t Or_unknown.t =
+let join_alloc_mode (alloc_mode1 : Alloc_mode.t)
+    (alloc_mode2 : Alloc_mode.t) : Alloc_mode.t =
   match alloc_mode1, alloc_mode2 with
-  | Unknown, _ | _, Unknown -> Unknown
-  | Known Heap, Known Heap -> Known Alloc_mode.heap
-  | Known Local, Known Local -> Known (Alloc_mode.local ())
-  | Known Heap, Known Local | Known Local, Known Heap -> Unknown
+  | Must_be_heap, Must_be_heap | May_be_local, May_be_local -> alloc_mode1
+  | Must_be_heap, May_be_local | May_be_local, Must_be_heap -> Alloc_mode.may_be_local ()
 
 let[@inline always] meet_unknown meet_contents ~contents_is_bottom env
     (or_unknown1 : _ Or_unknown.t) (or_unknown2 : _ Or_unknown.t) :
@@ -332,8 +322,8 @@ and meet_head_of_kind_value env (head1 : TG.head_of_kind_value)
       env_extension )
   | ( Mutable_block { alloc_mode = alloc_mode1 },
       Mutable_block { alloc_mode = alloc_mode2 } ) ->
-    let<+ alloc_mode = meet_alloc_mode alloc_mode1 alloc_mode2 in
-    TG.Head_of_kind_value.create_mutable_block alloc_mode, TEE.empty
+    let alloc_mode = meet_alloc_mode alloc_mode1 alloc_mode2 in
+    Ok (TG.Head_of_kind_value.create_mutable_block alloc_mode, TEE.empty)
   | ( Variant { blocks; _ },
       (Mutable_block { alloc_mode = alloc_mode_mut } as mut_block) )
   | ( (Mutable_block { alloc_mode = alloc_mode_mut } as mut_block),
@@ -341,28 +331,28 @@ and meet_head_of_kind_value env (head1 : TG.head_of_kind_value)
     match blocks with
     | Unknown -> Ok (mut_block, TEE.empty)
     | Known { alloc_mode = alloc_mode_immut; _ } ->
-      let<+ alloc_mode = meet_alloc_mode alloc_mode_mut alloc_mode_immut in
-      TG.Head_of_kind_value.create_mutable_block alloc_mode, TEE.empty)
+      let alloc_mode = meet_alloc_mode alloc_mode_mut alloc_mode_immut in
+      Ok (TG.Head_of_kind_value.create_mutable_block alloc_mode, TEE.empty))
   | Boxed_float (n1, alloc_mode1), Boxed_float (n2, alloc_mode2) ->
-    let<* n, env_extension = meet env n1 n2 in
-    let<+ alloc_mode = meet_alloc_mode alloc_mode1 alloc_mode2 in
+    let<+ n, env_extension = meet env n1 n2 in
+    let alloc_mode = meet_alloc_mode alloc_mode1 alloc_mode2 in
     TG.Head_of_kind_value.create_boxed_float n alloc_mode, env_extension
   | Boxed_int32 (n1, alloc_mode1), Boxed_int32 (n2, alloc_mode2) ->
-    let<* n, env_extension = meet env n1 n2 in
-    let<+ alloc_mode = meet_alloc_mode alloc_mode1 alloc_mode2 in
+    let<+ n, env_extension = meet env n1 n2 in
+    let alloc_mode = meet_alloc_mode alloc_mode1 alloc_mode2 in
     TG.Head_of_kind_value.create_boxed_int32 n alloc_mode, env_extension
   | Boxed_int64 (n1, alloc_mode1), Boxed_int64 (n2, alloc_mode2) ->
-    let<* n, env_extension = meet env n1 n2 in
-    let<+ alloc_mode = meet_alloc_mode alloc_mode1 alloc_mode2 in
+    let<+ n, env_extension = meet env n1 n2 in
+    let alloc_mode = meet_alloc_mode alloc_mode1 alloc_mode2 in
     TG.Head_of_kind_value.create_boxed_int64 n alloc_mode, env_extension
   | Boxed_nativeint (n1, alloc_mode1), Boxed_nativeint (n2, alloc_mode2) ->
-    let<* n, env_extension = meet env n1 n2 in
-    let<+ alloc_mode = meet_alloc_mode alloc_mode1 alloc_mode2 in
+    let<+ n, env_extension = meet env n1 n2 in
+    let alloc_mode = meet_alloc_mode alloc_mode1 alloc_mode2 in
     TG.Head_of_kind_value.create_boxed_nativeint n alloc_mode, env_extension
   | ( Closures { by_function_slot = by_function_slot1; alloc_mode = alloc_mode1 },
       Closures
         { by_function_slot = by_function_slot2; alloc_mode = alloc_mode2 } ) ->
-    let<* alloc_mode = meet_alloc_mode alloc_mode1 alloc_mode2 in
+    let alloc_mode = meet_alloc_mode alloc_mode1 alloc_mode2 in
     let<+ by_function_slot, env_extension =
       meet_row_like_for_closures env by_function_slot1 by_function_slot2
     in
@@ -385,7 +375,7 @@ and meet_head_of_kind_value env (head1 : TG.head_of_kind_value)
           contents = array_contents2;
           alloc_mode = alloc_mode2
         } ) ->
-    let<* alloc_mode = meet_alloc_mode alloc_mode1 alloc_mode2 in
+    let alloc_mode = meet_alloc_mode alloc_mode1 alloc_mode2 in
     let<* element_kind = meet_array_element_kinds element_kind1 element_kind2 in
     let<* contents, env_extension =
       meet_array_contents env array_contents1 array_contents2
@@ -530,7 +520,7 @@ and meet_head_of_kind_naked_immediate env (t1 : TG.head_of_kind_naked_immediate)
           (* No blocks exist with this tag *))
         tags Tag.Set.empty
     in
-    match MTC.blocks_with_these_tags tags Unknown with
+    match MTC.blocks_with_these_tags tags (Alloc_mode.may_be_local ()) with
     | Known shape ->
       let<+ ty, env_extension = meet env ty shape in
       TG.Head_of_kind_naked_immediate.create_get_tag ty, env_extension
@@ -719,8 +709,8 @@ and meet_row_like_for_blocks env
       ~get_singleton_map_known:Tag.Map.get_singleton
       ~merge_map_known:Tag.Map.merge env ~known1 ~known2 ~other1 ~other2
   in
-  let<+ alloc_mode = meet_alloc_mode alloc_mode1 alloc_mode2 in
-  ( TG.Row_like_for_blocks.create_raw ~known_tags ~other_tags ~alloc_mode,
+  let alloc_mode = meet_alloc_mode alloc_mode1 alloc_mode2 in
+  Ok ( TG.Row_like_for_blocks.create_raw ~known_tags ~other_tags ~alloc_mode,
     env_extension )
 
 and meet_row_like_for_closures env

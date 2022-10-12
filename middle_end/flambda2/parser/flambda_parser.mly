@@ -415,7 +415,7 @@ convertible_type:
 
 init_or_assign:
   | EQUAL { Initialization }
-  | LESSMINUS { Assignment Alloc_mode.With_region.heap }
+  | LESSMINUS { Assignment Alloc_mode.With_region.must_be_heap }
 
 signed_or_unsigned:
   | { Signed }

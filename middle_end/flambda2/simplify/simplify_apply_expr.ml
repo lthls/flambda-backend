@@ -277,7 +277,7 @@ let simplify_direct_full_application ~simplify_expr dacc apply function_type
 let simplify_direct_partial_application ~simplify_expr dacc apply
     ~callee's_code_id ~callee's_code_metadata ~callee's_function_slot
     ~param_arity ~result_arity ~recursive ~down_to_up ~coming_from_indirect
-    ~(closure_alloc_mode : Alloc_mode.With_region.t Or_unknown.t)
+    ~(closure_alloc_mode : Alloc_mode.With_region.t)
     ~current_region ~num_trailing_local_params =
   (* Partial-applications are converted in full applications. Let's assume that
      [foo] takes 6 arguments. Then [foo a b c] gets transformed into:
@@ -340,19 +340,18 @@ let simplify_direct_partial_application ~simplify_expr dacc apply
        be). *)
     let num_leading_heap_params = arity - num_trailing_local_params in
     if args_arity <= num_leading_heap_params
-    then Alloc_mode.With_region.heap, num_trailing_local_params
+    then Alloc_mode.With_region.must_be_heap, num_trailing_local_params
     else
       let num_supplied_local_args = args_arity - num_leading_heap_params in
-      ( Alloc_mode.With_region.local ~region:current_region,
+      ( Alloc_mode.With_region.may_be_local ~region:current_region,
         num_trailing_local_params - num_supplied_local_args )
   in
   (match closure_alloc_mode with
-  | Unknown -> ()
-  | Known Heap -> ()
-  | Known (Local _) -> (
+  | Must_be_heap -> ()
+  | May_be_local _ -> (
     match new_closure_alloc_mode with
-    | Local _ -> ()
-    | Heap ->
+    | May_be_local _ -> ()
+    | Must_be_heap ->
       Misc.fatal_errorf
         "New closure alloc mode cannot be [Heap] when existing closure alloc \
          mode is [Local]: direct partial application:@ %a"
@@ -362,8 +361,8 @@ let simplify_direct_partial_application ~simplify_expr dacc apply
   in
   let apply_alloc_mode : Alloc_mode.t =
     if contains_no_escaping_local_allocs
-    then Alloc_mode.heap
-    else Alloc_mode.local ()
+    then Alloc_mode.must_be_heap
+    else Alloc_mode.may_be_local ()
   in
   let wrapper_taking_remaining_args, dacc, code_id, code =
     let return_continuation = Continuation.create () in
@@ -866,11 +865,9 @@ let simplify_function_call ~simplify_expr dacc apply ~callee_ty
     in
     let current_region = Apply.region apply in
     let closure_alloc_mode =
-      Or_unknown.map closure_alloc_mode
-        ~f:(fun (closure_alloc_mode : Alloc_mode.t) ->
-          match closure_alloc_mode with
-          | Heap -> Alloc_mode.With_region.heap
-          | Local -> Alloc_mode.With_region.local ~region:current_region)
+      match closure_alloc_mode with
+      | Must_be_heap -> Alloc_mode.With_region.must_be_heap
+      | May_be_local -> Alloc_mode.With_region.may_be_local ~region:current_region
     in
     simplify_direct_function_call ~simplify_expr dacc apply
       ~callee's_code_id_from_type ~callee's_code_id_from_call_kind

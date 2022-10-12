@@ -144,15 +144,15 @@ let array_load (kind : Flambda_primitive.Array_kind.t) =
 let block_set (kind : Flambda_primitive.Block_access_kind.t)
     (init : Flambda_primitive.Init_or_assign.t) =
   match kind, init with
-  | Values _, Assignment Heap -> nonalloc_extcall_size (* caml_modify *)
-  | Values _, (Assignment (Local _) | Initialization) -> 1 (* cadda + store *)
+  | Values _, Assignment Must_be_heap -> nonalloc_extcall_size (* caml_modify *)
+  | Values _, (Assignment (May_be_local _) | Initialization) -> 1 (* cadda + store *)
   | Naked_floats _, (Assignment _ | Initialization) -> 1
 
 let array_set (kind : Flambda_primitive.Array_kind.t)
     (init : Flambda_primitive.Init_or_assign.t) =
   match kind, init with
-  | Values, Assignment Heap -> nonalloc_extcall_size
-  | Values, (Assignment (Local _) | Initialization) -> 1
+  | Values, Assignment Must_be_heap -> nonalloc_extcall_size
+  | Values, (Assignment (May_be_local _) | Initialization) -> 1
   | (Immediates | Naked_floats), (Assignment _ | Initialization) -> 1
 
 let string_or_bigstring_load kind width =

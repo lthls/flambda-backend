@@ -673,11 +673,11 @@ let unary_primitive_eligible_for_cse p ~arg =
     Flambda_features.float_const_prop ()
   | Num_conv _ | Boolean_not | Reinterpret_int64_as_float -> true
   | Unbox_number _ | Untag_immediate -> false
-  | Box_number (_, Local _) ->
+  | Box_number (_, May_be_local _) ->
     (* For the moment we don't CSE any local allocations. *)
     (* CR mshinwell: relax this in the future? *)
     false
-  | Box_number (_, Heap) | Tag_immediate ->
+  | Box_number (_, Must_be_heap) | Tag_immediate ->
     (* Boxing or tagging of constants will yield values that can be lifted and
        if needs be deduplicated -- so there's no point in adding CSE variables
        to hold them. *)
@@ -942,8 +942,8 @@ let effects_and_coeffects_of_unary_primitive p =
   | Box_number (_, alloc_mode) ->
     let coeffects : Coeffects.t =
       match alloc_mode with
-      | Heap -> Coeffects.No_coeffects
-      | Local _ -> Coeffects.Has_coeffects
+      | Must_be_heap -> Coeffects.No_coeffects
+      | May_be_local _ -> Coeffects.Has_coeffects
     in
     Effects.Only_generative_effects Immutable, coeffects
   | Project_function_slot _ | Project_value_slot _ ->
@@ -1412,8 +1412,8 @@ type variadic_primitive =
 
 let variadic_primitive_eligible_for_cse p ~args =
   match p with
-  | Make_block (_, _, Local _) | Make_array (_, Immutable, Local _) -> false
-  | Make_block (_, Immutable, Heap) | Make_array (_, Immutable, _) ->
+  | Make_block (_, _, May_be_local _) | Make_array (_, Immutable, May_be_local _) -> false
+  | Make_block (_, Immutable, Must_be_heap) | Make_array (_, Immutable, _) ->
     (* See comment in [unary_primitive_eligible_for_cse], above, on [Box_number]
        case. *)
     List.exists (fun arg -> Simple.is_var arg) args
@@ -1473,8 +1473,8 @@ let effects_and_coeffects_of_variadic_primitive p ~args =
   | Make_block (_, mut, alloc_mode) | Make_array (_, mut, alloc_mode) ->
     let coeffects : Coeffects.t =
       match alloc_mode with
-      | Heap -> Coeffects.No_coeffects
-      | Local _ -> Coeffects.Has_coeffects
+      | Must_be_heap -> Coeffects.No_coeffects
+      | May_be_local _ -> Coeffects.Has_coeffects
     in
     if List.length args >= 1
     then Effects.Only_generative_effects mut, coeffects

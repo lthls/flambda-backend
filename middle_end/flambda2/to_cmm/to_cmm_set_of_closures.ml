@@ -460,8 +460,8 @@ let let_dynamic_set_of_closures0 env res ~body ~bound_vars set
   let effs : Ece.t =
     ( Only_generative_effects Immutable,
       match closure_alloc_mode with
-      | Heap -> No_coeffects
-      | Local _ -> Has_coeffects )
+      | Must_be_heap -> No_coeffects
+      | May_be_local _ -> Has_coeffects )
   in
   let decl_map =
     decls |> Function_slot.Lmap.bindings |> Function_slot.Map.of_list

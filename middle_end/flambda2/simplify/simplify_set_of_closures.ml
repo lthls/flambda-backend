@@ -197,9 +197,8 @@ end = struct
               T.exactly_this_closure function_slot ~all_function_slots_in_set
                 ~all_closure_types_in_set:closure_types_via_aliases
                 ~all_value_slots_in_set:value_slot_types_inside_function
-                (Known
-                   (Alloc_mode.With_region.without_region
-                      (Set_of_closures.alloc_mode set_of_closures))))
+                (Alloc_mode.With_region.without_region
+                   (Set_of_closures.alloc_mode set_of_closures)))
             all_function_slots_in_set)
         all_sets_of_closures
         (List.combine closure_types_via_aliases_all_sets
@@ -400,10 +399,10 @@ let dacc_inside_function context ~outer_dacc ~params ~my_closure ~my_region
         in
         let alloc_modes =
           List.mapi
-            (fun index _ : Alloc_mode.t Or_unknown.t ->
+            (fun index _ : Alloc_mode.t ->
               if index < num_leading_heap_params
-              then Known Alloc_mode.heap
-              else Unknown)
+              then Alloc_mode.must_be_heap
+              else Alloc_mode.may_be_local ())
             (Bound_parameters.to_list params)
         in
         let denv =
@@ -856,9 +855,8 @@ let simplify_set_of_closures0 outer_dacc context set_of_closures
               ~all_function_slots_in_set:fun_types
               ~all_closure_types_in_set:closure_types_via_aliases
               ~all_value_slots_in_set:value_slot_types
-              (Known
-                 (Alloc_mode.With_region.without_region
-                    (Set_of_closures.alloc_mode set_of_closures)))
+              (Alloc_mode.With_region.without_region
+                 (Set_of_closures.alloc_mode set_of_closures))
           in
           (bound_name, closure_type) :: closure_types)
       fun_types []
@@ -1122,14 +1120,14 @@ let type_value_slots_and_make_lifting_decision_for_one_set dacc
                   || DE.is_defined_at_toplevel (DA.denv dacc) var
                      &&
                      match Set_of_closures.alloc_mode set_of_closures with
-                     | Local _ -> (
+                     | May_be_local _ -> (
                        match
                          T.never_holds_locally_allocated_values
                            (DA.typing_env dacc) var K.value
                        with
                        | Proved () -> true
                        | Unknown -> false)
-                     | Heap -> true))
+                     | Must_be_heap -> true))
          value_slots
   in
   { can_lift; value_slots; value_slot_types; symbol_projections }

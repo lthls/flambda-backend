@@ -375,13 +375,13 @@ let close_c_call acc env ~loc ~let_bound_var
     match prim_native_repr_res with
     | _, Same_as_ocaml_repr -> None
     | _, Unboxed_float ->
-      Some (P.Box_number (Naked_float, Alloc_mode.With_region.heap))
+      Some (P.Box_number (Naked_float, Alloc_mode.With_region.must_be_heap))
     | _, Unboxed_integer Pnativeint ->
-      Some (P.Box_number (Naked_nativeint, Alloc_mode.With_region.heap))
+      Some (P.Box_number (Naked_nativeint, Alloc_mode.With_region.must_be_heap))
     | _, Unboxed_integer Pint32 ->
-      Some (P.Box_number (Naked_int32, Alloc_mode.With_region.heap))
+      Some (P.Box_number (Naked_int32, Alloc_mode.With_region.must_be_heap))
     | _, Unboxed_integer Pint64 ->
-      Some (P.Box_number (Naked_int64, Alloc_mode.With_region.heap))
+      Some (P.Box_number (Naked_int64, Alloc_mode.With_region.must_be_heap))
     | _, Untagged_int -> Some P.Tag_immediate
   in
   let return_continuation, needs_wrapper =
@@ -1702,10 +1702,10 @@ let wrap_over_application acc env full_call (apply : IR.apply) over_args
   let apply_dbg = Debuginfo.from_location apply.loc in
   let needs_region =
     match apply_alloc_mode, contains_no_escaping_local_allocs with
-    | Heap, false ->
+    | Must_be_heap, false ->
       let over_app_region = Variable.create "over_app_region" in
       Some (over_app_region, Continuation.create ())
-    | Heap, true | Local, _ -> None
+    | Must_be_heap, true | May_be_local, _ -> None
   in
   let apply_region =
     match needs_region with
@@ -1729,8 +1729,8 @@ let wrap_over_application acc env full_call (apply : IR.apply) over_args
     in
     let alloc_mode =
       if contains_no_escaping_local_allocs
-      then Alloc_mode.heap
-      else Alloc_mode.local ()
+      then Alloc_mode.must_be_heap
+      else Alloc_mode.may_be_local ()
     in
     let call_kind = Call_kind.indirect_function_call_unknown_arity alloc_mode in
     let continuation =

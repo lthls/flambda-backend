@@ -507,7 +507,7 @@ let array_set_unsafe ~array ~index ~new_value (array_kind : P.Array_kind.t)
   match array_kind with
   | Immediates | Values ->
     Ternary
-      ( Array_set (array_kind, Assignment Alloc_mode.With_region.heap),
+      ( Array_set (array_kind, Assignment Alloc_mode.With_region.must_be_heap),
         array,
         index,
         new_value )
@@ -515,7 +515,7 @@ let array_set_unsafe ~array ~index ~new_value (array_kind : P.Array_kind.t)
     Ternary
       ( Array_set
           ( Naked_floats,
-            Assignment (Alloc_mode.With_region.local ~region:current_region) ),
+            Assignment (Alloc_mode.With_region.may_be_local ~region:current_region) ),
         array,
         index,
         unbox_float new_value )
@@ -618,7 +618,7 @@ let convert_lprim ~big_endian (prim : L.primitive) (args : Simple.t list)
       match args with
       | [] ->
         Variadic
-          (Make_array (Values, Immutable, Alloc_mode.With_region.heap), [])
+          (Make_array (Values, Immutable, Alloc_mode.With_region.must_be_heap), [])
       | elt :: _ ->
         (* Test the first element to see if it's a boxed float: if it is, this
            array must be created as a flat float array. *)
@@ -997,7 +997,7 @@ let convert_lprim ~big_endian (prim : L.primitive) (args : Simple.t list)
     Ternary
       ( Block_set
           ( block_access,
-            Assignment (Alloc_mode.With_region.local ~region:current_region) ),
+            Assignment (Alloc_mode.With_region.may_be_local ~region:current_region) ),
         block,
         Simple Simple.const_zero,
         new_ref_value )
@@ -1042,7 +1042,7 @@ let convert_lprim ~big_endian (prim : L.primitive) (args : Simple.t list)
         | [] -> Misc.fatal_errorf "Pbigarrayref is missing its arguments"
       in
       let box =
-        bigarray_box_or_tag_raw_value_to_read kind Alloc_mode.With_region.heap
+        bigarray_box_or_tag_raw_value_to_read kind Alloc_mode.With_region.must_be_heap
       in
       box (bigarray_load ~dbg ~unsafe kind layout b indexes)
     | None, _ ->
