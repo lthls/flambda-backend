@@ -1188,14 +1188,7 @@ end = struct
         let fields = List.map type_from_approx (Array.to_list fields) in
         MTC.immutable_block ~is_unique:false Tag.zero
           ~field_kind:Flambda_kind.value ~fields alloc_mode
-      | Closure_approximation
-          { code_id;
-            function_slot;
-            code = _;
-            symbol;
-            all_function_slots = _;
-            all_value_slots = _
-          } ->
+      | Closure_approximation { code_id; function_slot; code = _; symbol } ->
         MTC.static_closure_with_this_code ~this_function_slot:function_slot
           ~closure_symbol:symbol ~code_id
     in
@@ -1297,19 +1290,8 @@ end = struct
                 let code_id = TG.Function_type.code_id function_type in
                 let code_or_meta = find_code code_id in
                 Closure_approximation
-                  { code_id;
-                    function_slot;
-                    all_function_slots =
-                      Function_slot.Map.keys
-                        closures_entry.closure_types
-                          .function_slot_components_by_index;
-                    all_value_slots =
-                      Value_slot.Map.keys
-                        closures_entry.value_slot_types
-                          .value_slot_components_by_index;
-                    code = code_or_meta;
-                    symbol = None
-                  }))
+                  { code_id; function_slot; code = code_or_meta; symbol = None }
+              ))
           | Variant { immediates = Unknown; blocks = _; is_unique = _ }
           | Variant { immediates = _; blocks = Unknown; is_unique = _ } ->
             Value_unknown
