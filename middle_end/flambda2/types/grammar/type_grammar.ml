@@ -2554,52 +2554,40 @@ module Row_like_for_closures = struct
         (* If this is a singleton all the information from the env_extension is
            already part of the environment *)
         match index with
-        | At_least _ -> None
-        | Known index -> Some ((tag, index), maps_to)))
+        | At_least index ->
+          if Function_slot.Set.mem tag (Set_of_closures_contents.closures index)
+          then Some (tag, maps_to)
+          else None
+        | Known index ->
+          if Function_slot.Set.mem tag (Set_of_closures_contents.closures index)
+          then Some (tag, maps_to)
+          else
+            Misc.fatal_errorf
+              "Function slot %a not bound in Known closure type with contents \
+               %a"
+              Function_slot.print tag Set_of_closures_contents.print index))
 
   let get_closure t function_slot : _ Or_unknown.t =
     match get_singleton t with
     | None -> Unknown
-    | Some ((_tag, index), maps_to) ->
-      if not
-           (Function_slot.Set.mem function_slot
-              (Set_of_closures_contents.closures index))
-      then Unknown
-      else
-        let closure_ty =
-          try
-            Function_slot.Map.find function_slot
-              maps_to.closure_types.function_slot_components_by_index
-          with Not_found ->
-            Misc.fatal_errorf
-              "Function slot %a is bound in index but not in maps_to@.Index:@ \
-               %a@.Maps_to:@ %a"
-              Function_slot.print function_slot Set_of_closures_contents.print
-              index print_closures_entry maps_to
-        in
-        Known closure_ty
+    | Some (_tag, maps_to) -> (
+      match
+        Function_slot.Map.find_opt function_slot
+          maps_to.closure_types.function_slot_components_by_index
+      with
+      | None -> Unknown
+      | Some closure_ty -> Known closure_ty)
 
   let get_env_var t env_var : _ Or_unknown.t =
     match get_singleton t with
     | None -> Unknown
-    | Some ((_tag, index), maps_to) ->
-      if not
-           (Value_slot.Set.mem env_var
-              (Set_of_closures_contents.value_slots index))
-      then Unknown
-      else
-        let env_var_ty =
-          try
-            Value_slot.Map.find env_var
-              maps_to.value_slot_types.value_slot_components_by_index
-          with Not_found ->
-            Misc.fatal_errorf
-              "Environment variable %a is bound in index but not in \
-               maps_to@.Index:@ %a@.Maps_to:@ %a"
-              Value_slot.print env_var Set_of_closures_contents.print index
-              print_closures_entry maps_to
-        in
-        Known env_var_ty
+    | Some (_tag, maps_to) -> (
+      match
+        Value_slot.Map.find_opt env_var
+          maps_to.value_slot_types.value_slot_components_by_index
+      with
+      | None -> Unknown
+      | Some env_var_ty -> Known env_var_ty)
 end
 
 module Env_extension = struct

@@ -457,9 +457,7 @@ module Row_like_for_closures : sig
       (Set_of_closures_contents.t, closures_entry) row_like_case Or_bottom.t ->
     t
 
-  val get_singleton :
-    t ->
-    ((Function_slot.t * Set_of_closures_contents.t) * Closures_entry.t) option
+  val get_singleton : t -> (Function_slot.t * Closures_entry.t) option
 
   (** Same as For_blocks.get_field: attempt to find the type associated to the
       given environment variable without an expensive meet. *)

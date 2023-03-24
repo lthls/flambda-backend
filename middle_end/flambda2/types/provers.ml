@@ -550,11 +550,7 @@ let prove_single_closures_entry_generic env t : _ generic_proof =
   | Value (Ok (Closures { by_function_slot; alloc_mode })) -> (
     match TG.Row_like_for_closures.get_singleton by_function_slot with
     | None -> Unknown
-    | Some ((function_slot, set_of_closures_contents), closures_entry) -> (
-      let function_slots =
-        Set_of_closures_contents.closures set_of_closures_contents
-      in
-      assert (Function_slot.Set.mem function_slot function_slots);
+    | Some (function_slot, closures_entry) -> (
       let function_type =
         TG.Closures_entry.find_function_type closures_entry function_slot
       in

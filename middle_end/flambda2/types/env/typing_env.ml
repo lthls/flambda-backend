@@ -1320,7 +1320,7 @@ end = struct
           | Closures { by_function_slot; alloc_mode = _ } -> (
             match TG.Row_like_for_closures.get_singleton by_function_slot with
             | None -> Value_unknown
-            | Some ((function_slot, contents), closures_entry) -> (
+            | Some (function_slot, closures_entry) -> (
               match
                 TG.Closures_entry.find_function_type closures_entry
                   function_slot
@@ -1333,9 +1333,13 @@ end = struct
                   { code_id;
                     function_slot;
                     all_function_slots =
-                      Set_of_closures_contents.closures contents;
+                      Function_slot.Map.keys
+                        closures_entry.closure_types
+                          .function_slot_components_by_index;
                     all_value_slots =
-                      Set_of_closures_contents.value_slots contents;
+                      Value_slot.Map.keys
+                        closures_entry.value_slot_types
+                          .value_slot_components_by_index;
                     code = code_or_meta;
                     symbol = None
                   }))
