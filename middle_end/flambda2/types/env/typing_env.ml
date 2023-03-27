@@ -1278,11 +1278,10 @@ end = struct
           | Boxed_nativeint _ | String _ | Array _ ->
             Value_unknown
           | Closures { by_function_slot; alloc_mode = _ } -> (
-            match TG.Row_like_for_closures.get_single_tag by_function_slot with
-            | None -> Value_unknown
-            | Some (function_slot, closures_entry) -> (
+            let approx_of_closures_entry ~exact function_slot closures_entry :
+                _ Value_approximation.t =
               match
-                TG.Closures_entry.find_function_type closures_entry
+                TG.Closures_entry.find_function_type closures_entry ~exact
                   function_slot
               with
               | Bottom | Unknown -> Value_unknown
@@ -1291,7 +1290,14 @@ end = struct
                 let code_or_meta = find_code code_id in
                 Closure_approximation
                   { code_id; function_slot; code = code_or_meta; symbol = None }
-              ))
+            in
+            match TG.Row_like_for_closures.get_single_tag by_function_slot with
+            | No_singleton -> Value_unknown
+            | Exact_closure (function_slot, closures_entry) ->
+              approx_of_closures_entry ~exact:true function_slot closures_entry
+            | Incomplete_closure (function_slot, closures_entry) ->
+              approx_of_closures_entry ~exact:false function_slot closures_entry
+            )
           | Variant { immediates = Unknown; blocks = _; is_unique = _ }
           | Variant { immediates = _; blocks = Unknown; is_unique = _ } ->
             Value_unknown

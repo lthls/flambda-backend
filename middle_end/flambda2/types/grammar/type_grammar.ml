@@ -2212,9 +2212,9 @@ module Closures_entry = struct
   let create ~function_types ~closure_types ~value_slot_types =
     { function_types; closure_types; value_slot_types }
 
-  let find_function_type t function_slot : _ Or_unknown_or_bottom.t =
+  let find_function_type t ~exact function_slot : _ Or_unknown_or_bottom.t =
     match Function_slot.Map.find function_slot t.function_types with
-    | exception Not_found -> Bottom
+    | exception Not_found -> if exact then Bottom else Unknown
     | func_decl -> func_decl
 
   let value_slot_types { value_slot_types; _ } =
@@ -2544,23 +2544,29 @@ module Row_like_for_closures = struct
     (* CR-someday mshinwell: add invariant check? *)
     { known_closures; other_closures }
 
-  let get_single_tag { known_closures; other_closures } =
+  type get_single_tag_result =
+    | No_singleton
+    | Exact_closure of Function_slot.t * closures_entry
+    | Incomplete_closure of Function_slot.t * closures_entry
+
+  let get_single_tag { known_closures; other_closures } : get_single_tag_result
+      =
     match other_closures with
-    | Ok _ -> None
+    | Ok _ -> No_singleton
     | Bottom -> (
       match Function_slot.Map.get_singleton known_closures with
-      | None -> None
+      | None -> No_singleton
       | Some (tag, { maps_to; index; env_extension = _ }) -> (
         (* If this is a singleton all the information from the env_extension is
            already part of the environment *)
         match index with
         | At_least index ->
           if Function_slot.Set.mem tag (Set_of_closures_contents.closures index)
-          then Some (tag, maps_to)
-          else None
+          then Incomplete_closure (tag, maps_to)
+          else No_singleton
         | Known index ->
           if Function_slot.Set.mem tag (Set_of_closures_contents.closures index)
-          then Some (tag, maps_to)
+          then Exact_closure (tag, maps_to)
           else
             Misc.fatal_errorf
               "Function slot %a not bound in Known closure type with contents \
@@ -2569,8 +2575,8 @@ module Row_like_for_closures = struct
 
   let get_closure t function_slot : _ Or_unknown.t =
     match get_single_tag t with
-    | None -> Unknown
-    | Some (_tag, maps_to) -> (
+    | No_singleton -> Unknown
+    | Exact_closure (_tag, maps_to) | Incomplete_closure (_tag, maps_to) -> (
       match
         Function_slot.Map.find_opt function_slot
           maps_to.closure_types.function_slot_components_by_index
@@ -2580,8 +2586,8 @@ module Row_like_for_closures = struct
 
   let get_env_var t env_var : _ Or_unknown.t =
     match get_single_tag t with
-    | None -> Unknown
-    | Some (_tag, maps_to) -> (
+    | No_singleton -> Unknown
+    | Exact_closure (_tag, maps_to) | Incomplete_closure (_tag, maps_to) -> (
       match
         Value_slot.Map.find_opt env_var
           maps_to.value_slot_types.value_slot_components_by_index

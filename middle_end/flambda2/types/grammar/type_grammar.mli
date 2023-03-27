@@ -343,7 +343,7 @@ module Closures_entry : sig
     t
 
   val find_function_type :
-    t -> Function_slot.t -> Function_type.t Or_unknown_or_bottom.t
+    t -> exact:bool -> Function_slot.t -> Function_type.t Or_unknown_or_bottom.t
 
   val value_slot_types : t -> flambda_type Value_slot.Map.t
 end
@@ -459,10 +459,12 @@ module Row_like_for_closures : sig
       (Set_of_closures_contents.t, closures_entry) row_like_case Or_bottom.t ->
     t
 
-  (** If the type only contains a single entry, return it. Unlike
-      [Row_like_for_blocks.get_singleton], this will also return the entry
-      associated with a type created with [create_at_least]. *)
-  val get_single_tag : t -> (Function_slot.t * Closures_entry.t) option
+  type get_single_tag_result =
+    | No_singleton
+    | Exact_closure of Function_slot.t * Closures_entry.t
+    | Incomplete_closure of Function_slot.t * Closures_entry.t
+
+  val get_single_tag : t -> get_single_tag_result
 
   (** Same as For_blocks.get_field: attempt to find the type associated to the
       given environment variable without an expensive meet. *)
