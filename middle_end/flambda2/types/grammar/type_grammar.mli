@@ -398,6 +398,8 @@ module Row_like_for_blocks : sig
 
   val all_tags_and_sizes : t -> Targetint_31_63.t Tag.Map.t Or_unknown.t
 
+  (** If the type corresponds to a single block of known size (as created by
+      [create_exactly_multiple]) then return it. *)
   val get_singleton :
     t ->
     (Tag_and_size.t * Product.Int_indexed.t * Alloc_mode.For_types.t) option
@@ -457,7 +459,10 @@ module Row_like_for_closures : sig
       (Set_of_closures_contents.t, closures_entry) row_like_case Or_bottom.t ->
     t
 
-  val get_singleton : t -> (Function_slot.t * Closures_entry.t) option
+  (** If the type only contains a single entry, return it. Unlike
+      [Row_like_for_blocks.get_singleton], this will also return the entry
+      associated with a type created with [create_at_least]. *)
+  val get_single_tag : t -> (Function_slot.t * Closures_entry.t) option
 
   (** Same as For_blocks.get_field: attempt to find the type associated to the
       given environment variable without an expensive meet. *)

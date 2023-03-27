@@ -2544,7 +2544,7 @@ module Row_like_for_closures = struct
     (* CR-someday mshinwell: add invariant check? *)
     { known_closures; other_closures }
 
-  let get_singleton { known_closures; other_closures } =
+  let get_single_tag { known_closures; other_closures } =
     match other_closures with
     | Ok _ -> None
     | Bottom -> (
@@ -2568,7 +2568,7 @@ module Row_like_for_closures = struct
               Function_slot.print tag Set_of_closures_contents.print index))
 
   let get_closure t function_slot : _ Or_unknown.t =
-    match get_singleton t with
+    match get_single_tag t with
     | None -> Unknown
     | Some (_tag, maps_to) -> (
       match
@@ -2579,7 +2579,7 @@ module Row_like_for_closures = struct
       | Some closure_ty -> Known closure_ty)
 
   let get_env_var t env_var : _ Or_unknown.t =
-    match get_singleton t with
+    match get_single_tag t with
     | None -> Unknown
     | Some (_tag, maps_to) -> (
       match

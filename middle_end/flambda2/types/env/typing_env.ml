@@ -1278,7 +1278,7 @@ end = struct
           | Boxed_nativeint _ | String _ | Array _ ->
             Value_unknown
           | Closures { by_function_slot; alloc_mode = _ } -> (
-            match TG.Row_like_for_closures.get_singleton by_function_slot with
+            match TG.Row_like_for_closures.get_single_tag by_function_slot with
             | None -> Value_unknown
             | Some (function_slot, closures_entry) -> (
               match

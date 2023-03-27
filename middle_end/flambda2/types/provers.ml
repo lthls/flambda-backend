@@ -548,7 +548,7 @@ let prove_is_immediates_array env t : unit proof_of_property =
 let prove_single_closures_entry_generic env t : _ generic_proof =
   match expand_head env t with
   | Value (Ok (Closures { by_function_slot; alloc_mode })) -> (
-    match TG.Row_like_for_closures.get_singleton by_function_slot with
+    match TG.Row_like_for_closures.get_single_tag by_function_slot with
     | None -> Unknown
     | Some (function_slot, closures_entry) -> (
       let function_type =
