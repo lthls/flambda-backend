@@ -164,6 +164,10 @@ module Stdlib : sig
         and the element itself as second argument. *)
 
     val all_somes : 'a option array -> 'a array option
+
+    val map_sharing : ('a -> 'a) -> 'a array -> 'a array
+    (** [map_sharing f a] is [map f a]. If for all elements of the array
+        [f e == e] then [map_sharing f a == a] *)
   end
 
   module String : sig

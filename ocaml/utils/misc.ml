@@ -217,6 +217,17 @@ module Stdlib = struct
         Some (Array.map (function None -> raise_notrace Exit | Some x -> x) a)
       with
       | Exit -> None
+
+    let map_sharing f a =
+      let same = ref true in
+      let f' x =
+        let x' = f x in
+        if x != x' then
+          same := false;
+        x'
+      in
+      let a' = Array.map f' a in
+      if !same then a else a'
   end
 
   module String = struct
