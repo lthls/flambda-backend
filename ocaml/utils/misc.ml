@@ -226,7 +226,7 @@ module Stdlib = struct
           same := false;
         x'
       in
-      let a' = Array.map f' a in
+      let a' = (Array.map [@inlined hint]) f' a in
       if !same then a else a'
   end
 
