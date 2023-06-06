@@ -56,25 +56,31 @@ let as_meet_shortcut (p : _ generic_proof) : _ meet_shortcut =
 let as_property (p : _ generic_proof) : _ proof_of_property =
   match p with Proved x -> Proved x | Unknown | Invalid -> Unknown
 
-let prove_equals_to_simple_of_kind_value env t : Simple.t proof_of_property =
+let prove_equals_to_simple_of_given_kind env t kind : Simple.t proof_of_property
+    =
   let original_kind = TG.kind t in
-  if not (K.equal original_kind K.value)
-  then wrong_kind "Value" t
+  if not (K.equal original_kind kind)
+  then wrong_kind (Format.asprintf "%a" K.print kind) t
   else
-    (* CR pchambart: add TE.get_alias_opt *)
-    match TG.get_alias_exn t with
-    | exception Not_found ->
+    match TG.get_alias_opt t with
+    | None ->
       (* CR vlaviron: We could try to turn singleton types into constants here.
          I think there are already a few hacks to generate constant aliases
          instead of singleton types when possible, so we might never end up here
          with a singleton type in practice. *)
       Unknown
-    | simple -> (
+    | Some simple -> (
       match
         TE.get_canonical_simple_exn env simple ~min_name_mode:Name_mode.normal
       with
       | exception Not_found -> Unknown
       | simple -> Proved simple)
+
+let prove_equals_to_simple_of_kind_value env t =
+  prove_equals_to_simple_of_given_kind env t K.value
+
+let prove_equals_to_simple_of_kind_naked_float env t =
+  prove_equals_to_simple_of_given_kind env t K.naked_float
 
 (* Note: this function is used for simplifying Obj.is_int, so should not assume
    that the argument represents a variant *)

@@ -714,6 +714,8 @@ type to_lift = private
   | Boxed_int32 of Numeric_types.Int32.t
   | Boxed_int64 of Numeric_types.Int64.t
   | Boxed_nativeint of Targetint_32_64.t
+  | Immutable_float_block of
+      { fields : Numeric_types.Float_by_bit_pattern.t Or_variable.t list }
   | Immutable_float_array of
       { fields : Numeric_types.Float_by_bit_pattern.t list }
   | Immutable_value_array of { fields : Simple.t list }

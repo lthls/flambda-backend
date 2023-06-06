@@ -35,6 +35,9 @@ type 'a proof_of_property = private
 val prove_equals_to_simple_of_kind_value :
   Typing_env.t -> Type_grammar.t -> Simple.t proof_of_property
 
+val prove_equals_to_simple_of_kind_naked_float :
+  Typing_env.t -> Type_grammar.t -> Simple.t proof_of_property
+
 (* CR mshinwell: Should remove "_equals_" from these names *)
 val prove_equals_tagged_immediates :
   Typing_env.t -> Type_grammar.t -> Targetint_31_63.Set.t proof_of_property

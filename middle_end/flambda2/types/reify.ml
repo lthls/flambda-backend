@@ -30,6 +30,7 @@ type to_lift =
   | Boxed_int32 of Int32.t
   | Boxed_int64 of Int64.t
   | Boxed_nativeint of Targetint_32_64.t
+  | Immutable_float_block of { fields : Float.t Or_variable.t list }
   | Immutable_float_array of { fields : Float.t list }
   | Immutable_value_array of { fields : Simple.t list }
   | Empty_array
@@ -68,6 +69,39 @@ let try_to_reify_fields env ~var_allowed alloc_mode ~field_types =
   if List.compare_lengths field_types field_simples = 0
   then Some field_simples
   else None
+
+let try_to_reify_float_fields env ~var_allowed alloc_mode ~field_types =
+  let fields =
+    List.filter_map
+      (fun field_type ->
+        match
+          Provers.prove_equals_to_simple_of_kind_naked_float env field_type
+        with
+        | Proved simple when not (Coercion.is_id (Simple.coercion simple)) ->
+          (* CR-someday lmaurer: Support lifting things whose fields have
+             coercions. *)
+          None
+        | Proved simple ->
+          Simple.pattern_match' simple
+            ~var:(fun var ~coercion:_ ->
+              if var_allowed alloc_mode var
+              then Some (Or_variable.Var (var, Debuginfo.none))
+              else None)
+            ~symbol:(fun sym ~coercion:_ ->
+              Misc.fatal_errorf "Symbol %a has kind Naked_float" Symbol.print
+                sym)
+            ~const:(fun const ->
+              match Reg_width_const.descr const with
+              | Naked_float f -> Some (Or_variable.Const f)
+              | Tagged_immediate _ | Naked_immediate _ | Naked_int32 _
+              | Naked_int64 _ | Naked_nativeint _ ->
+                (* This should never happen, as we should have got a kind error
+                   instead *)
+                None)
+        | Unknown -> None)
+      field_types
+  in
+  if List.compare_lengths field_types fields = 0 then Some fields else None
 
 (* CR mshinwell: Think more to identify all the cases that should be in this
    function. *)
@@ -134,7 +168,31 @@ let reify ~allowed_if_free_vars_defined_in ~var_is_defined_at_toplevel
             (* CR mshinwell: Could recognise other things, e.g. tagged
                immediates and float arrays, supported by [Static_part]. *)
             match Tag.Scannable.of_tag tag with
-            | None -> try_canonical_simple ()
+            | None ->
+              (* See if it corresponds to a float record *)
+              if Tag.equal tag Tag.double_array_tag
+              then
+                match TG.Product.Int_indexed.field_kind field_types with
+                | Naked_number Naked_float -> (
+                  let field_types =
+                    TG.Product.Int_indexed.components field_types
+                  in
+                  match
+                    try_to_reify_float_fields env ~var_allowed alloc_mode
+                      ~field_types
+                  with
+                  | Some fields -> Lift (Immutable_float_block { fields })
+                  | None -> try_canonical_simple ())
+                | Value
+                | Naked_number
+                    ( Naked_immediate | Naked_int32 | Naked_int64
+                    | Naked_nativeint )
+                | Region | Rec_info ->
+                  Misc.fatal_errorf
+                    "Block type %a has tag double_array_tag but doesn't \
+                     contains naked floats"
+                    TG.print t
+              else try_canonical_simple ()
             | Some tag -> (
               let field_types = TG.Product.Int_indexed.components field_types in
               match
