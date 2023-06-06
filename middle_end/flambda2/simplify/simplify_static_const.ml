@@ -147,8 +147,12 @@ let simplify_static_const_of_kind_value dacc (static_const : Static_const.t)
             field K.naked_float)
         fields
     in
-    let fields, _field_tys = List.split fields_with_tys in
-    let dacc = bind_result_sym T.any_value in
+    let fields, field_tys = List.split fields_with_tys in
+    let block_ty =
+      T.immutable_block ~is_unique:false Tag.double_array_tag
+        ~field_kind:K.naked_float Alloc_mode.For_types.heap ~fields:field_tys
+    in
+    let dacc = bind_result_sym block_ty in
     ( Rebuilt_static_const.create_immutable_float_block
         (DA.are_rebuilding_terms dacc)
         fields,
