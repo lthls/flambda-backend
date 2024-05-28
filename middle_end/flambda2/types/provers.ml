@@ -1049,12 +1049,12 @@ let prove_physical_equality env t1 t2 =
               extensions = _;
               is_unique = _
             },
-          ( Mutable_block _ | Boxed_float _ | Boxed_float32 _ | Boxed_int32 _ | Boxed_int64 _
-          | Boxed_vec128 _ | Boxed_nativeint _ | Closures _ | String _ | Array _
-            ) )
-      | ( ( Mutable_block _ | Boxed_float _ | Boxed_float32 _ | Boxed_int32 _ | Boxed_int64 _
-          | Boxed_vec128 _ | Boxed_nativeint _ | Closures _ | String _ | Array _
-            ),
+          ( Mutable_block _ | Boxed_float _ | Boxed_float32 _ | Boxed_int32 _
+          | Boxed_int64 _ | Boxed_vec128 _ | Boxed_nativeint _ | Closures _
+          | String _ | Array _ ) )
+      | ( ( Mutable_block _ | Boxed_float _ | Boxed_float32 _ | Boxed_int32 _
+          | Boxed_int64 _ | Boxed_vec128 _ | Boxed_nativeint _ | Closures _
+          | String _ | Array _ ),
           Variant
             { immediates = _;
               blocks = Known blocks;
