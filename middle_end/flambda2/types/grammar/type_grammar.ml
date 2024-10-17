@@ -38,6 +38,10 @@ module Block_size = struct
   let inter t1 t2 = Targetint_31_63.min t1 t2
 end
 
+type is_null =
+  | Not_null
+  | Maybe_null
+
 (* The grammar of Flambda types. *)
 type t =
   | Value of head_of_kind_value TD.t
@@ -52,8 +56,12 @@ type t =
   | Region of head_of_kind_region TD.t
 
 and head_of_kind_value =
-  { non_null : head_of_kind_value_non_null;
-    is_null : bool Or_unknown.t (* CR vlaviron: define a dedicated type *)
+  { (* CR vlaviron: This Or_unknown_or_bottom is in part redundant with the one
+       introduced by Type_descr, but we need to be able to express things like
+       "unknown but not null" or "bottom but maybe null" (which is the type for
+       the Null constructor) *)
+    non_null : head_of_kind_value_non_null Or_unknown_or_bottom.t;
+    is_null : is_null
   }
 
 and head_of_kind_value_non_null =
@@ -263,7 +271,10 @@ let rec free_names0 ~follow_value_slots t =
 
 and free_names_head_of_kind_value0 ~follow_value_slots { non_null; is_null = _ }
     =
-  free_names_head_of_kind_value_non_null ~follow_value_slots non_null
+  match non_null with
+  | Unknown | Bottom -> Name_occurrences.empty
+  | Ok non_null ->
+    free_names_head_of_kind_value_non_null ~follow_value_slots non_null
 
 and free_names_head_of_kind_value_non_null ~follow_value_slots head =
   match head with
@@ -542,12 +553,15 @@ let rec apply_renaming t renaming =
 
 and apply_renaming_head_of_kind_value head renaming =
   let { non_null; is_null = _ } = head in
-  let non_null' =
-    apply_renaming_head_of_kind_value_non_null non_null renaming
-  in
-  if non_null == non_null'
-  then head
-  else { non_null = non_null'; is_null = head.is_null }
+  match non_null with
+  | Unknown | Bottom -> head
+  | Ok non_null ->
+    let non_null' =
+      apply_renaming_head_of_kind_value_non_null non_null renaming
+    in
+    if non_null == non_null'
+    then head
+    else { non_null = Ok non_null'; is_null = head.is_null }
 
 and apply_renaming_head_of_kind_value_non_null head renaming =
   match head with
@@ -830,12 +844,10 @@ let rec print ppf t =
       ty
 
 and print_head_of_kind_value ppf { non_null; is_null } =
-  match is_null with
-  | Known true -> Format.fprintf ppf "Null"
-  | Known false -> print_head_of_kind_value_non_null ppf non_null
-  | Unknown ->
-    Format.fprintf ppf "@[<hov 1>(Null@ |@ %a)@]"
-      print_head_of_kind_value_non_null non_null
+  let null_string = match is_null with Maybe_null -> "?" | Not_null -> "!" in
+  Format.fprintf ppf "@[<hov 1> %a%s@]"
+    (Or_unknown_or_bottom.print print_head_of_kind_value_non_null)
+    non_null null_string
 
 and print_head_of_kind_value_non_null ppf head =
   match head with
@@ -1088,7 +1100,9 @@ let rec ids_for_export t =
     TD.ids_for_export ~ids_for_export_head:ids_for_export_head_of_kind_region ty
 
 and ids_for_export_head_of_kind_value { non_null; is_null = _ } =
-  ids_for_export_head_of_kind_value_non_null non_null
+  match non_null with
+  | Unknown | Bottom -> Ids_for_export.empty
+  | Ok non_null -> ids_for_export_head_of_kind_value_non_null non_null
 
 and ids_for_export_head_of_kind_value_non_null head =
   match head with
@@ -1328,11 +1342,14 @@ let rec apply_coercion t coercion : t Or_bottom.t =
       in
       if ty == ty' then t else Region ty'
 
-and apply_coercion_head_of_kind_value { non_null; is_null } coercion =
-  let<+ non_null =
-    apply_coercion_head_of_kind_value_non_null non_null coercion
-  in
-  { non_null; is_null }
+and apply_coercion_head_of_kind_value ({ non_null; is_null } as head) coercion =
+  match non_null with
+  | Unknown | Bottom -> Or_bottom.Ok head
+  | Ok non_null ->
+    let<+ non_null =
+      apply_coercion_head_of_kind_value_non_null non_null coercion
+    in
+    { non_null = Ok non_null; is_null }
 
 and apply_coercion_head_of_kind_value_non_null head coercion : _ Or_bottom.t =
   match head with
@@ -1681,13 +1698,16 @@ let rec remove_unused_value_slots_and_shortcut_aliases t ~used_value_slots
 and remove_unused_value_slots_and_shortcut_aliases_head_of_kind_value head
     ~used_value_slots ~canonicalise =
   let { non_null; is_null = _ } = head in
-  let non_null' =
-    remove_unused_value_slots_and_shortcut_aliases_head_of_kind_value_non_null
-      non_null ~used_value_slots ~canonicalise
-  in
-  if non_null == non_null'
-  then head
-  else { non_null = non_null'; is_null = head.is_null }
+  match non_null with
+  | Unknown | Bottom -> head
+  | Ok non_null ->
+    let non_null' =
+      remove_unused_value_slots_and_shortcut_aliases_head_of_kind_value_non_null
+        non_null ~used_value_slots ~canonicalise
+    in
+    if non_null == non_null'
+    then head
+    else { non_null = Ok non_null'; is_null = head.is_null }
 
 and remove_unused_value_slots_and_shortcut_aliases_head_of_kind_value_non_null
     head ~used_value_slots ~canonicalise =
@@ -2244,12 +2264,15 @@ let rec project_variables_out ~to_project ~expand t =
 
 and project_head_of_kind_value ~to_project ~expand head =
   let { non_null; is_null = _ } = head in
-  let non_null' =
-    project_head_of_kind_value_non_null ~to_project ~expand non_null
-  in
-  if non_null == non_null'
-  then head
-  else { non_null = non_null'; is_null = head.is_null }
+  match non_null with
+  | Unknown | Bottom -> head
+  | Ok non_null ->
+    let non_null' =
+      project_head_of_kind_value_non_null ~to_project ~expand non_null
+    in
+    if non_null == non_null'
+    then head
+    else { non_null = Ok non_null'; is_null = head.is_null }
 
 and project_head_of_kind_value_non_null ~to_project ~expand head =
   match head with
@@ -2526,7 +2549,7 @@ let kind t =
   | Region _ -> K.region
 
 let non_null_value non_null =
-  Value (TD.create { non_null; is_null = Known false })
+  Value (TD.create { non_null = Ok non_null; is_null = Not_null })
 
 let create_variant ~is_unique ~(immediates : _ Or_unknown.t) ~blocks =
   (match immediates with
@@ -3309,7 +3332,7 @@ let create_from_head_region head = Region (TD.create head)
 module Head_of_kind_value = struct
   type t = head_of_kind_value
 
-  let mk_non_null non_null = { non_null; is_null = Known false }
+  let mk_non_null non_null = { non_null = Ok non_null; is_null = Not_null }
 
   let create_variant ~is_unique ~blocks ~immediates =
     mk_non_null (Variant { is_unique; blocks; immediates })
@@ -3468,21 +3491,23 @@ let rec recover_some_aliases t =
     match TD.descr ty with
     | Unknown | Bottom
     | Ok (Equals _)
-    | Ok (No_alias { is_null = Unknown | Known true; _ })
-    (* CR vlaviron: Known true should be an alias *)
+    (* CR vlaviron: Recover null aliases *)
+    | Ok (No_alias { is_null = Maybe_null; _ })
     | Ok
         (No_alias
-          { is_null = Known false;
+          { is_null = Not_null;
             non_null =
-              ( Mutable_block _ | Boxed_float _ | Boxed_float32 _
-              | Boxed_int32 _ | Boxed_int64 _ | Boxed_vec128 _
-              | Boxed_nativeint _ | String _ | Closures _ | Array _ )
+              ( Unknown | Bottom
+              | Ok
+                  ( Mutable_block _ | Boxed_float _ | Boxed_float32 _
+                  | Boxed_int32 _ | Boxed_int64 _ | Boxed_vec128 _
+                  | Boxed_nativeint _ | String _ | Closures _ | Array _ ) )
           }) ->
       t
     | Ok
         (No_alias
-          { is_null = Known false;
-            non_null = Variant { immediates; blocks; is_unique = _ }
+          { is_null = Not_null;
+            non_null = Ok (Variant { immediates; blocks; is_unique = _ })
           }) -> (
       match blocks with
       | Unknown -> t

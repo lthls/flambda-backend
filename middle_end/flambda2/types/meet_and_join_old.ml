@@ -335,17 +335,30 @@ and meet_expanded_head0 env (descr1 : ET.descr) (descr2 : ET.descr) :
     assert false
 
 and meet_head_of_kind_value env (head1 : TG.head_of_kind_value)
-    (head2 : TG.head_of_kind_value) =
-  let<* non_null, env_extension =
-    meet_head_of_kind_value_non_null env head1.non_null head2.non_null
+    (head2 : TG.head_of_kind_value) :
+    (TG.head_of_kind_value * TEE.t) Or_bottom.t =
+  let non_null_result : _ Or_bottom.t =
+    match head1.non_null, head2.non_null with
+    | Bottom, _ | _, Bottom -> Bottom
+    | Unknown, non_null | non_null, Unknown -> Ok (non_null, TEE.empty)
+    | Ok non_null1, Ok non_null2 ->
+      let<+ non_null, env_extension =
+        meet_head_of_kind_value_non_null env non_null1 non_null2
+      in
+      Or_unknown_or_bottom.Ok non_null, env_extension
   in
-  let<+ is_null =
+  let is_null : TG.is_null =
     match head1.is_null, head2.is_null with
-    | Unknown, is_null | is_null, Unknown -> Ok is_null
-    | Known b1, Known b2 ->
-      if Bool.equal b1 b2 then Ok (Or_unknown.Known b1) else Bottom
+    | Not_null, _ | _, Not_null -> Not_null
+    | Maybe_null, Maybe_null -> Maybe_null
   in
-  ({ non_null; is_null } : TG.head_of_kind_value), env_extension
+  match non_null_result, is_null with
+  | Bottom, Maybe_null -> Ok ({ non_null = Bottom; is_null }, TEE.empty)
+  | Bottom, Not_null -> Bottom
+  | Ok (non_null, env_extension), Not_null ->
+    Ok ({ non_null; is_null }, env_extension)
+  | Ok (non_null, _env_extension), Maybe_null ->
+    Ok ({ non_null; is_null }, TEE.empty)
 
 and meet_head_of_kind_value_non_null env
     (head1 : TG.head_of_kind_value_non_null)
@@ -1264,14 +1277,23 @@ and join_expanded_head env kind (expanded1 : ET.t) (expanded2 : ET.t) : ET.t =
 
 and join_head_of_kind_value env (head1 : TG.head_of_kind_value)
     (head2 : TG.head_of_kind_value) : TG.head_of_kind_value Or_unknown.t =
-  match join_head_of_kind_value_non_null env head1.non_null head2.non_null with
-  | Unknown -> Unknown
-  | Known non_null ->
-    let is_null : _ Or_unknown.t =
-      match head1.is_null, head2.is_null with
-      | Unknown, _ | _, Unknown -> Unknown
-      | Known b1, Known b2 -> if Bool.equal b1 b2 then Known b1 else Unknown
-    in
+  let non_null : _ Or_unknown_or_bottom.t =
+    match head1.non_null, head2.non_null with
+    | Unknown, _ | _, Unknown -> Unknown
+    | Bottom, non_null | non_null, Bottom -> non_null
+    | Ok non_null1, Ok non_null2 -> (
+      match join_head_of_kind_value_non_null env non_null1 non_null2 with
+      | Unknown -> Unknown
+      | Known non_null -> Ok non_null)
+  in
+  let is_null : TG.is_null =
+    match head1.is_null, head2.is_null with
+    | Maybe_null, _ | _, Maybe_null -> Maybe_null
+    | Not_null, Not_null -> Not_null
+  in
+  match non_null, is_null with
+  | Unknown, Maybe_null -> Unknown
+  | (Unknown | Bottom | Ok _), (Maybe_null | Not_null) ->
     Known { non_null; is_null }
 
 and join_head_of_kind_value_non_null env
