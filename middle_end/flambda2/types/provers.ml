@@ -662,21 +662,15 @@ let prove_single_closures_entry_generic_value _env
 let meet_single_closures_entry env t =
   gen_value_to_meet prove_single_closures_entry_generic_value env t
 
-let meet_is_immutable_array env t =
-  as_meet_shortcut (prove_is_immutable_array_generic env t)
-
-let prove_is_immutable_array env t =
-  as_property (prove_is_immutable_array_generic env t)
-
 let prove_single_closures_entry env t =
   gen_value_to_proof prove_single_closures_entry_generic_value env t
 
 let prove_is_immutable_array_generic_value _env
     (value_head : TG.head_of_kind_value_non_null) : _ generic_proof =
   match value_head with
-  | Array { element_kind; length; contents; alloc_mode } -> (
+  | Array { element_kind; length = _; contents; alloc_mode } -> (
     match contents with
-    | Known (Immutable _) -> Proved (element_kind, length, alloc_mode)
+    | Known (Immutable { fields }) -> Proved (element_kind, fields, alloc_mode)
     | Known Mutable -> Invalid
     | Unknown -> Unknown)
   | Variant _ | Mutable_block _ | Boxed_float _ | Boxed_float32 _
