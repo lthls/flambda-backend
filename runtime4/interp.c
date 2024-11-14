@@ -884,7 +884,7 @@ value caml_interprete(code_t prog, asize_t prog_size)
       Next;
     Instruct(SWITCH): {
       uint32_t sizes = *pc++;
-      if (Is_block(accu)) {
+      if (accu != Val_null && Is_block(accu)) {
         intnat index = Tag_val(accu);
         CAMLassert ((uintnat) index < (sizes >> 16));
         pc += pc[(sizes & 0xFFFF) + index];

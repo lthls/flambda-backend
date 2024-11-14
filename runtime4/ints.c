@@ -881,6 +881,7 @@ CAMLprim value caml_reinterpret_unboxed_int64_as_tagged_int63(value i)
   // This stub is only used for bytecode, so in fact the "unboxed_int64"
   // is boxed.
   CAMLassert(sizeof(value) == 8);
+  CAMLassert(i != Val_null);
   CAMLassert(Is_block(i));
   CAMLassert(Tag_val(i) == Custom_tag);
   return (value) (Int64_val(i) | 1L);

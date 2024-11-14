@@ -473,11 +473,11 @@ Caml_inline value run_callback_exn(
     return res;
   } else {
     /* Callback returned [Some _]. Store the value in [user_data]. */
-    CAMLassert(!Is_exception_result(res) && Is_block(res) && Tag_val(res) == 0
-               && Wosize_val(res) == 1);
+    CAMLassert(!Is_exception_result(res) && res != Val_null &&
+              Is_block(res) && Tag_val(res) == 0 && Wosize_val(res) == 1);
     t->user_data = Field(res, 0);
-    if (Is_block(t->user_data) && Is_young(t->user_data) &&
-        t_idx < ea->young_idx)
+    if (t->user_data != Val_null && Is_block(t->user_data) &&
+        Is_young(t->user_data) && t_idx < ea->young_idx)
       ea->young_idx = t_idx;
 
     // If the following condition are met:
@@ -512,7 +512,8 @@ static value run_alloc_callback_exn(uintnat t_idx)
   struct tracked* t = &local->entries.t[t_idx];
   value sample_info;
 
-  CAMLassert(Is_block(t->block) || Is_placeholder(t->block) || t->deallocated);
+  CAMLassert(Is_block(t->block) ||
+    Is_placeholder(t->block) || t->deallocated);
   sample_info = caml_alloc_small(4, 0);
   Field(sample_info, 0) = Val_long(t->n_samples);
   Field(sample_info, 1) = Val_long(t->wosize);
@@ -668,8 +669,8 @@ static void entry_array_minor_update(struct entry_array *ea, void *data)
      of iterations of this loop. */
   for (i = ea->young_idx; i < ea->len; i++) {
     struct tracked *t = &ea->t[i];
-    CAMLassert(Is_block(t->block) || t->deleted || t->deallocated ||
-               Is_placeholder(t->block));
+    CAMLassert(Is_block(t->block) || t->deleted ||
+               t->deallocated || Is_placeholder(t->block));
     if (Is_block(t->block) && Is_young(t->block)) {
       if (Hd_val(t->block) == 0) {
         /* Block has been promoted */
@@ -717,7 +718,7 @@ static void entry_array_clean_phase(struct entry_array *ea, void* data)
   (void)data;
   for (i = 0; i < ea->len; i++) {
     struct tracked *t = &ea->t[i];
-    if (Is_block(t->block) && !Is_young(t->block)) {
+    if (t->block != Val_null && Is_block(t->block) && !Is_young(t->block)) {
       CAMLassert(Is_in_heap(t->block));
       CAMLassert(!t->alloc_young || t->promoted);
       if (Is_white_val(t->block)) {

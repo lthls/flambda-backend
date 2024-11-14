@@ -70,7 +70,8 @@
 #define Local_unmarked Caml_blue /* allocation color of local objects */
 #define Local_scanned Caml_gray
 
-#define Is_stack(blk) (Is_block(blk) && Color_hd(Hd_val(blk)) == Local_unmarked)
+#define Is_stack(blk) (blk != Val_null && Is_block(blk) && \
+ Color_hd(Hd_val(blk)) == Local_unmarked)
 
 #ifdef CAML_INTERNALS
 

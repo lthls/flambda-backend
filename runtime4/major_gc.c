@@ -217,7 +217,7 @@ Caml_inline void mark_stack_push(struct mark_stack* stk, value block,
   int i, block_scannable_wsz, block_wsz, end;
   mark_entry* me;
 
-  CAMLassert(Is_block(block) && Is_in_heap (block)
+  CAMLassert(block != Val_null && Is_block(block) && Is_in_heap (block)
             && Is_black_val(block));
   CAMLassert(Tag_val(block) != Infix_tag);
   CAMLassert(Tag_val(block) < No_scan_tag);
@@ -248,7 +248,7 @@ Caml_inline void mark_stack_push(struct mark_stack* stk, value block,
   for (i = offset; i < end; i++) {
     v = Field(block, i);
 
-    if (Is_block(v) && !Is_young(v))
+    if (v != Val_null && Is_block(v) && !Is_young(v))
       /* found something to mark */
       break;
   }
@@ -287,9 +287,9 @@ static void is_naked_pointer_safe (value v, value *p);
 void caml_darken (value v, value *p)
 {
 #ifdef NO_NAKED_POINTERS
-  if (Is_block(v) && !Is_young (v)) {
+  if (v != Val_null && Is_block(v) && !Is_young (v)) {
 #else
-  if (Is_block(v) && Is_in_heap (v)) {
+  if (v != Val_null && Is_block(v) && Is_in_heap (v)) {
 #endif
     header_t h = Hd_val (v);
     tag_t t = Tag_hd (h);
@@ -309,7 +309,7 @@ void caml_darken (value v, value *p)
     }
   }
 #if defined(NAKED_POINTERS_CHECKER) && defined(NATIVE_CODE)
-  else if (Is_block(v) && !Is_young(v)) {
+  else if (v != Val_null && Is_block(v) && !Is_young(v)) {
     is_naked_pointer_safe(v, p);
   }
 #endif
@@ -357,7 +357,7 @@ static int redarken_chunk(char* heap_chunk, struct mark_stack* stk) {
     CAMLassert(me.start <= me.scannable_end &&
                (header_t*)me.scannable_end <= end);
     while (me.start < me.scannable_end &&
-           (!Is_block(*me.start) || Is_young(*me.start))) {
+           (*me.start == Val_null || !Is_block(*me.start) || Is_young(*me.start))) {
       me.start++;
     }
 
@@ -448,16 +448,16 @@ Caml_inline void mark_ephe_darken(struct mark_stack* stk, value v, mlsize_t i,
   child = Field (v, i);
 
 #ifdef NO_NAKED_POINTERS
-  if (Is_block (child) && ! Is_young (child)) {
+  if (child != Val_null && Is_block (child) && ! Is_young (child)) {
 #else
-  if (Is_block (child) && Is_in_heap (child)) {
+  if (child != Val_null && Is_block (child) && Is_in_heap (child)) {
 #endif
     CAML_EVENTLOG_DO (++ *slice_pointers);
     chd = Hd_val (child);
     if (Tag_hd (chd) == Forward_tag){
       value f = Forward_val (child);
-      if ((in_ephemeron && Is_long(f)) ||
-          (Is_block (f)
+      if ((in_ephemeron && (Is_long(f) || f == Val_null)) ||
+          (f != Val_null && Is_block (f)
            && (!Is_in_value_area(f) || Tag_val (f) == Forward_tag
                || Tag_val (f) == Lazy_tag || Tag_val (f) == Forcing_tag
 #ifdef FLAT_FLOAT_ARRAY
@@ -468,7 +468,7 @@ Caml_inline void mark_ephe_darken(struct mark_stack* stk, value v, mlsize_t i,
       }else{
         /* The variable child is not changed because it must be mark alive */
         Field (v, i) = f;
-        if (Is_block (f) && Is_young (f) && !Is_young (child)){
+        if (f != Val_null && Is_block (f) && Is_young (f) && !Is_young (child)){
           if(in_ephemeron) {
             add_to_ephe_ref_table (Caml_state->ephe_ref_table, v, i);
           } else {
@@ -492,7 +492,7 @@ Caml_inline void mark_ephe_darken(struct mark_stack* stk, value v, mlsize_t i,
     }
   }
 #if defined(NAKED_POINTERS_CHECKER) && defined(NATIVE_CODE)
-  else if (Is_block(child) && ! Is_young(child)) {
+  else if (child != Val_null && Is_block(child) && ! Is_young(child)) {
     is_naked_pointer_safe(child, &Field (v, i));
   }
 #endif
@@ -510,7 +510,7 @@ static void mark_ephe_aux (struct mark_stack *stk, intnat *work,
   CAMLassert(Tag_val (v) == Abstract_tag);
   data = Field(v,CAML_EPHE_DATA_OFFSET);
   if ( data != caml_ephe_none &&
-       Is_block (data) &&
+       data != Val_null && Is_block (data) &&
 #ifdef NO_NAKED_POINTERS
        !Is_young(data) &&
 #else
@@ -529,7 +529,7 @@ static void mark_ephe_aux (struct mark_stack *stk, intnat *work,
       key = Field (v, i);
     ephemeron_again:
       if (key != caml_ephe_none &&
-          Is_block (key) &&
+          key != Val_null && Is_block (key) &&
 #ifdef NO_NAKED_POINTERS
           !Is_young(key)
 #else
@@ -538,7 +538,7 @@ static void mark_ephe_aux (struct mark_stack *stk, intnat *work,
           ){
         if (Tag_val (key) == Forward_tag){
           value f = Forward_val (key);
-          if (Is_long (f) ||
+          if (Is_long (f) || f == Val_null ||
               (Is_block (f) &&
                (!Is_in_value_area(f) || Tag_val (f) == Forward_tag
                 || Tag_val (f) == Lazy_tag || Tag_val (f) == Forcing_tag
@@ -1386,7 +1386,7 @@ static void is_naked_pointer_safe (value v, value *p)
   tag_t t;
 
   /* The following conditions were checked by the caller */
-  CAMLassert(Is_block(v) && !Is_young(v) && !Is_in_heap(v));
+  CAMLassert(v != Val_null && Is_block(v) && !Is_young(v) && !Is_in_heap(v));
 
   if (! safe_load(&Hd_val(v), &h)) goto on_segfault;
 

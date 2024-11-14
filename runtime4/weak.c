@@ -50,6 +50,7 @@ value caml_ephe_none = (value) &ephe_dummy;
 #define CAMLassert_not_dead_value(v) do{                              \
     value __v = v;                                                    \
     if (caml_gc_phase == Phase_clean                                  \
+        && __v != Val_null                                            \
         && Is_block(__v)                                              \
         && Is_in_heap (__v)) {                                        \
       if (Tag_val (__v) == Infix_tag) __v -= Infix_offset_val (__v);  \
@@ -71,9 +72,9 @@ CAMLexport mlsize_t caml_ephemeron_num_keys(value eph)
 Caml_inline int Test_if_its_white(value x){
   CAMLassert (x != caml_ephe_none);
 #ifdef NO_NAKED_POINTERS
-  if (!Is_block(x) || Is_young (x)) return 0;
+  if (x == Val_null || !Is_block(x) || Is_young (x)) return 0;
 #else
-  if (!Is_block(x) || !Is_in_heap(x)) return 0;
+  if (x == Val_null || !Is_block(x) || !Is_in_heap(x)) return 0;
 #endif
   if (Tag_val(x) == Infix_tag) x -= Infix_offset_val(x);
   return Is_white_val(x);
@@ -102,9 +103,9 @@ Caml_inline int Must_be_Marked_during_mark(value x)
   CAMLassert (x != caml_ephe_none);
   CAMLassert (caml_gc_phase == Phase_mark);
 #ifdef NO_NAKED_POINTERS
-  return Is_block (x) && !Is_young (x);
+  return x != Val_null && Is_block (x) && !Is_young (x);
 #else
-  return Is_block (x) && Is_in_heap (x);
+  return x != Val_null && Is_block (x) && Is_in_heap (x);
 #endif
 }
 
@@ -203,11 +204,11 @@ Caml_inline int is_ephe_key_none(value ar, mlsize_t offset)
 
 static void do_set (value ar, mlsize_t offset, value v)
 {
-  if (Is_block (v) && Is_young (v)){
+  if (v != Val_null && Is_block (v) && Is_young (v)){
     /* modified version of caml_modify */
     value old = Field (ar, offset);
     Field (ar, offset) = v;
-    if (!(Is_block (old) && Is_young (old))){
+    if (!(old != Val_null && Is_block (old) && Is_young (old))){
       add_to_ephe_ref_table (Caml_state->ephe_ref_table, ar, offset);
     }
   }else{
@@ -272,7 +273,7 @@ CAMLprim value caml_ephe_unset_key (value ar, value n)
 /* deprecated (03/2016) */
 value caml_ephe_set_key_option (value ar, value n, value el)
 {
-  if (Is_block (el)){
+  if (el != Val_null && Is_block (el)){
     CAMLassert (Wosize_val (el) == 1);
     caml_ephe_set_key(ar, n, Field (el, 0));
   }else{
@@ -442,7 +443,7 @@ CAMLexport int caml_ephemeron_get_key_copy(value ar, mlsize_t offset,
     if(is_ephe_key_none(ar, offset)) CAMLreturn(0);
     v = Field (ar, offset);
     /** Don't copy custom_block #7279 */
-    if(!(Is_block (v) && Is_in_value_area(v) && Tag_val(v) != Custom_tag)) {
+    if(!(v != Val_null && Is_block (v) && Is_in_value_area(v) && Tag_val(v) != Custom_tag)) {
       if ( caml_gc_phase == Phase_mark && Must_be_Marked_during_mark(v) ){
         caml_darken (v, NULL);
       };
@@ -504,7 +505,7 @@ CAMLexport int caml_ephemeron_get_data_copy (value ar, value *data)
     v = Field (ar, CAML_EPHE_DATA_OFFSET);
     if (v == caml_ephe_none) CAMLreturn(0);
     /** Don't copy custom_block #7279 */
-    if (!(Is_block (v) && Is_in_value_area(v) && Tag_val(v) != Custom_tag)) {
+    if (!(v != Val_null && Is_block (v) && Is_in_value_area(v) && Tag_val(v) != Custom_tag)) {
       if ( caml_gc_phase == Phase_mark && Must_be_Marked_during_mark(v) ){
         caml_darken (v, NULL);
       };

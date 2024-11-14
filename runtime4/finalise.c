@@ -96,6 +96,7 @@ static void generic_final_update (struct finalisable * final, int darken_value)
 
   CAMLassert (final->old <= final->young);
   for (i = 0; i < final->old; i++){
+    CAMLassert (final->table[i].val != Val_null);
     CAMLassert (Is_block (final->table[i].val));
     CAMLassert (Is_in_heap (final->table[i].val));
     if (Is_white_val (final->table[i].val)){
@@ -116,6 +117,7 @@ static void generic_final_update (struct finalisable * final, int darken_value)
     alloc_to_do (todo_count);
     j = k = 0;
     for (i = 0; i < final->old; i++){
+      CAMLassert (final->table[i].val != Val_null);
       CAMLassert (Is_block (final->table[i].val));
       CAMLassert (Is_in_heap (final->table[i].val));
       CAMLassert (Tag_val (final->table[i].val) != Forward_tag);
@@ -274,6 +276,7 @@ static void generic_final_minor_update (struct finalisable * final)
 
   CAMLassert (final->old <= final->young);
   for (i = final->old; i < final->young; i++){
+    CAMLassert (final->table[i].val != Val_null);
     CAMLassert (Is_block (final->table[i].val));
     CAMLassert (Is_in_heap_or_young (final->table[i].val));
     if (Is_young(final->table[i].val) && Hd_val(final->table[i].val) != 0){
@@ -294,6 +297,7 @@ static void generic_final_minor_update (struct finalisable * final)
     k = 0;
     j = final->old;
     for (i = final->old; i < final->young; i++){
+      CAMLassert (final->table[i].val != Val_null);
       CAMLassert (Is_block (final->table[i].val));
       CAMLassert (Is_in_heap_or_young (final->table[i].val));
       CAMLassert (Tag_val (final->table[i].val) != Forward_tag);
@@ -317,6 +321,7 @@ static void generic_final_minor_update (struct finalisable * final)
 
   /** update the minor value to the copied major value */
   for (i = final->old; i < final->young; i++){
+    CAMLassert (final->table[i].val != Val_null);
     CAMLassert (Is_block (final->table[i].val));
     CAMLassert (Is_in_heap_or_young (final->table[i].val));
     if (Is_young(final->table[i].val)) {
@@ -355,7 +360,7 @@ void caml_final_empty_young (void)
 /* Put (f,v) in the recent set. */
 static void generic_final_register (struct finalisable *final, value f, value v)
 {
-  if (!Is_block (v)
+  if (v == Val_null || !Is_block (v)
       || !Is_in_heap_or_young(v)
       || Tag_val (v) == Lazy_tag
 #ifdef FLAT_FLOAT_ARRAY

@@ -57,6 +57,7 @@ extern uintnat caml_custom_minor_max_bsz; /* see custom.c */
 /* Check that [v]'s header looks good.  [v] must be a block in the heap. */
 static void check_head (value v)
 {
+  CAMLassert (v != Val_null);
   CAMLassert (Is_block (v));
   CAMLassert (Is_in_heap (v));
 
@@ -118,7 +119,7 @@ static void check_block (header_t *hp)
     else start = 0;
     for (i = start; i < Scannable_wosize_hd (Hd_hp (hp)); i++){
       f = Field (v, i);
-      if (Is_block (f) && Is_in_heap (f)){
+      if (f != Val_null && Is_block (f) && Is_in_heap (f)){
         check_head (f);
         CAMLassert (Color_val (f) != Caml_blue);
       }

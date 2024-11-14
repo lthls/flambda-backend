@@ -204,7 +204,7 @@ void caml_oldify_one (value v, value *p)
   tag_t tag;
 
  tail_call:
-  if (Is_block (v) && Is_young (v)){
+  if (v != Val_null && Is_block (v) && Is_young (v)){
     CAMLassert ((value *) Hp_val (v) >= Caml_state->young_ptr);
     hd = Hd_val (v);
     if (hd == 0){         /* If already forwarded */
@@ -255,7 +255,7 @@ void caml_oldify_one (value v, value *p)
         int vv = 1;
 
         CAMLassert (tag == Forward_tag);
-        if (Is_block (f)){
+        if (f != Val_null && Is_block (f)){
           if (Is_young (f)){
             vv = 1;
             ft = Tag_val (Hd_val (f) == 0 ? Field (f, 0) : f);
@@ -297,7 +297,7 @@ Caml_inline int ephe_check_alive_data(struct caml_ephe_ref_elt *re){
   value child;
   for (i = CAML_EPHE_FIRST_KEY; i < Wosize_val(re->ephe); i++){
     child = Field (re->ephe, i);
-    if(child != caml_ephe_none
+    if(child != caml_ephe_none && child != Val_null
        && Is_block (child) && Is_young (child)) {
       if(Tag_val(child) == Infix_tag) child -= Infix_offset_val(child);
       if(Hd_val (child) != 0) return 0; /* Value not copied to major heap */
@@ -337,7 +337,7 @@ void caml_oldify_mopup (void)
     CAMLassert (scannable_wosize > 1);
 
     f = Field (new_v, 0);
-    if (Is_block (f) && Is_young (f)){
+    if (f != Val_null && Is_block (f) && Is_young (f)){
       caml_oldify_one (f, &Field (new_v, 0));
     }
 
@@ -352,7 +352,7 @@ void caml_oldify_mopup (void)
 
     for (; i < scannable_wosize; i++){
       f = Field (v, i);
-      if (Is_block (f) && Is_young (f)){
+      if (f != Val_null && Is_block (f) && Is_young (f)){
         caml_oldify_one (f, &Field (new_v, i));
       }else{
         Field (new_v, i) = f;
@@ -369,7 +369,7 @@ void caml_oldify_mopup (void)
     /* look only at ephemeron with data in the minor heap */
     if (re->offset == 1){
       value *data = &Field(re->ephe,1), v = *data;
-      if (v != caml_ephe_none && Is_block (v) && Is_young (v)){
+      if (v != caml_ephe_none && v != Val_null && Is_block (v) && Is_young (v)){
         mlsize_t offs = Tag_val(v) == Infix_tag ? Infix_offset_val(v) : 0;
         v -= offs;
         if (Hd_val (v) == 0){ /* Value copied to major heap */
@@ -404,7 +404,7 @@ static void verify_minor_heap(void)
         i = Start_env_closinfo(Closinfo_val(Val_hp(p)));
       for (; i < Scannable_wosize_hd(hd); i++) {
         value v = Field(Val_hp(p), i);
-        if (Is_block(v)) {
+        if (v != Val_null && Is_block(v)) {
           if (Is_young(v)) CAMLassert ((value)Caml_state->young_ptr < v);
           if (arena) {
             CAMLassert(!(arena->base <= (char*)v &&
@@ -420,7 +420,7 @@ static void verify_minor_heap(void)
          r < Caml_state->ref_table->ptr; r++) {
       CAMLassert(!(arena->base <= (char*)*r &&
                    (char*)*r < arena->base + arena->length));
-      if (Is_block(**r)) {
+      if (**r != Val_null && Is_block(**r)) {
         CAMLassert(!(arena->base <= (char*)**r &&
                      (char*)**r < arena->base + arena->length));
       }
@@ -468,7 +468,7 @@ void caml_empty_minor_heap (void)
       if(re->offset < Wosize_val(re->ephe)){
         /* If it is not the case, the ephemeron has been truncated */
         value *key = &Field(re->ephe,re->offset), v = *key;
-        if (v != caml_ephe_none && Is_block (v) && Is_young (v)){
+        if (v != caml_ephe_none && v != Val_null && Is_block (v) && Is_young (v)){
           mlsize_t offs = Tag_val (v) == Infix_tag ? Infix_offset_val (v) : 0;
           v -= offs;
           if (Hd_val (v) == 0){ /* Value copied to major heap */

@@ -300,7 +300,7 @@ void caml_register_dyn_global(void *v) {
 {
   *start = 0;
 
-  CAMLassert (Is_block (*glob_block));
+  CAMLassert (*glob_block != Val_null && Is_block (*glob_block));
 
   if (Tag_val (*glob_block) < No_scan_tag) {
     /* Note: if a [Closure_tag] block is registered as a global root
@@ -498,7 +498,7 @@ static int visit(scanning_action maj, scanning_action min,
 {
   value v = *p, vblock = v;
   header_t hd;
-  if (!Is_block(v))
+  if (v == Val_null || !Is_block(v))
     return 0;
 
   if (Is_young(v)) {

@@ -68,7 +68,7 @@ static void invert_pointer_at (word *p)
 
   CAMLassert (((uintnat) p & 3) == 0);
 
-  if (Is_block (q) && Is_in_value_area (q)){
+  if (q != Val_null && Is_block (q) && Is_in_value_area (q)){
     h = Hd_val (q);
     switch (Color_hd (h)){
     case Caml_white:
@@ -100,8 +100,8 @@ void caml_invert_root (value v, value *p)
   /* Note: this assertion will become tautological and should be removed when
      we finally get rid of the page table in NNP mode.
   */
-  CAMLassert (Is_long (*p) || Is_in_heap (*p) || Is_black_val (*p)
-              || Tag_val (*p) == Infix_tag);
+  CAMLassert (*p == Val_null || Is_long (*p) || Is_in_heap (*p) ||
+              Is_black_val (*p) || Tag_val (*p) == Infix_tag);
 #endif
   invert_pointer_at ((word *) p);
 }

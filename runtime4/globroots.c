@@ -89,7 +89,7 @@ enum gc_root_class {
 
 static enum gc_root_class classify_gc_root(value v)
 {
-  if(!Is_block(v)) return UNTRACKED;
+  if(v == Val_null || !Is_block(v)) return UNTRACKED;
   if(Is_young(v)) return YOUNG;
 #ifndef NO_NAKED_POINTERS
   if(!Is_in_heap(v)) return UNTRACKED;

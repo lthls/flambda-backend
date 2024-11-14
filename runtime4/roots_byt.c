@@ -126,7 +126,7 @@ CAMLexport void caml_do_local_roots_byt (scanning_action f, value *stack_low,
     /* Code pointers inside the stack are naked pointers.
        We must avoid passing them to function [f]. */
     value v = *sp;
-    if (Is_block(v) && caml_find_code_fragment_by_pc((char *) v) == NULL) {
+    if (v != Val_null && Is_block(v) && caml_find_code_fragment_by_pc((char *) v) == NULL) {
       f(v, sp);
     }
 #else

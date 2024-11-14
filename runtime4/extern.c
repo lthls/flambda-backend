@@ -525,6 +525,11 @@ Caml_inline void extern_unboxed_int(intnat n)
   writecode64(CODE_UNBOXED_INT64, n);
 }
 
+Caml_inline void extern_null(void)
+{
+  writecode8(CODE_NULL, 0);
+}
+
 /* Marshaling references to previously-marshaled blocks */
 
 Caml_inline void extern_shared_reference(uintnat d)
@@ -725,7 +730,9 @@ static void extern_rec(value v)
   sp = extern_stack;
 
   while(1) {
-  if (Is_long(v)) {
+  if (v == Val_null) {
+    extern_null();
+  } else if (Is_long(v)) {
     extern_int(Long_val(v));
   }
   else if (! (Is_in_value_area(v))) {
@@ -1223,7 +1230,7 @@ intnat reachable_words_once(value root, intnat identifier, value sizes_by_root_i
   CAMLassert(identifier >= 0);
 
   while (1) {
-    if (Is_long(v)) {
+    if (v == Val_null || Is_long(v)) {
       /* Tagged integers contribute 0 to the size, nothing to do */
     } else if (! Is_in_heap_or_young(v)) {
       /* Out-of-heap blocks contribute 0 to the size, nothing to do */

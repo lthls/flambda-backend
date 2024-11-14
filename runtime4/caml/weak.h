@@ -175,7 +175,7 @@ Caml_inline void caml_ephe_clean_partial (value v,
   for (i = offset_start; i < offset_end; i++){
     child = Field (v, i);
   ephemeron_again:
-    if (child != caml_ephe_none
+    if (child != caml_ephe_none && child != Val_null
         && Is_block (child) && Is_in_value_area (child)){
       if (Tag_val (child) == Forward_tag){
         value f = Forward_val (child);
@@ -201,7 +201,7 @@ Caml_inline void caml_ephe_clean_partial (value v,
   }
 
   child = Field (v, 1);
-  if(child != caml_ephe_none){
+  if(child != caml_ephe_none && child != Val_null){
     if (release_data) Field (v, 1) = caml_ephe_none;
 #ifdef DEBUG
     else if (offset_start == 2 && offset_end == Wosize_hd (Hd_val(v)) &&

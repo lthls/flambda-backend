@@ -516,7 +516,7 @@ CAMLprim value caml_install_signal_handler(value signal_number, value action)
   default:                      /* error in caml_set_signal_action */
     caml_sys_error(NO_ARG);
   }
-  if (Is_block(action)) {
+  if (action != Val_null && Is_block(action)) {
     if (caml_signal_handlers == 0) {
       caml_signal_handlers = caml_alloc(NSIG, 0);
       caml_register_global_root(&caml_signal_handlers);

@@ -91,7 +91,8 @@ void caml_alloc_minor_tables (void);
 
 #define Oldify(p) do{ \
     value __oldify__v__ = *p; \
-    if (Is_block (__oldify__v__) && Is_young (__oldify__v__)){ \
+    if (__oldify__v__ != Val_null && \
+      Is_block (__oldify__v__) && Is_young (__oldify__v__)){ \
       caml_oldify_one (__oldify__v__, (p)); \
     } \
   }while(0)

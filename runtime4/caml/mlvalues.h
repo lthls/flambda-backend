@@ -93,6 +93,9 @@ typedef uintnat mark_t;
 #define Is_exception_result(v) (((v) & 3) == 2)
 #define Extract_exception(v) ((v) & ~3)
 
+/* or_null */
+#define Val_null ((value) 0)
+
 /* Structure of the header:
 
 For 16-bit and 32-bit architectures:
