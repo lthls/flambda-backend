@@ -78,8 +78,12 @@ let record_events orig evl =
 let same_custom x y =
   Nativeint.equal (Obj.raw_field x 0) (Obj.raw_field (Obj.repr y) 0)
 
+external is_null : Obj.t -> bool = "%is_null"
+
 let rec print_obj x =
-  if Obj.is_block x then begin
+  if is_null x then
+    printf "null"
+  else if Obj.is_block x then begin
     let tag = Obj.tag x in
     if tag = Obj.string_tag then
         printf "%S" (Obj.magic x : string)
