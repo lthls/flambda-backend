@@ -30,7 +30,7 @@ let () =
   | _ -> assert false
 ;;
 
-external int_as_int : int -> int or_null = "%identity"
+external int_as_int : int -> int or_null = "%opaque"
 
 let m = int_as_int 5
 
@@ -83,7 +83,7 @@ let () =
     | This _ -> assert false
 ;;
 
-external evil : 'a or_null -> 'a = "%identity"
+external evil : 'a or_null -> 'a = "%opaque"
 
 let e = This (evil Null)
 
