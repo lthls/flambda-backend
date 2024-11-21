@@ -77,6 +77,10 @@ module Make(O : OBJ)(EVP : EVALPATH with type valu = O.t) = struct
 
     external is_null : O.t -> bool = "%is_null"
 
+    (* Normally, [Obj.is_block] can't be called on [value_or_null]s.
+       But here we need to handle nullable values at toplevel. *)
+    let is_real_block o = O.is_block o && not (is_null o)
+
     module ObjTbl = Hashtbl.Make(struct
         type t = O.t
         let equal = (==)
@@ -274,7 +278,7 @@ module Make(O : OBJ)(EVP : EVALPATH with type valu = O.t) = struct
       let nested_values = ObjTbl.create 8 in
       let nest_gen err f depth obj ty =
         let repr = obj in
-        if is_null repr || not (O.is_block repr) then
+        if not (is_real_block repr) then
           f depth obj ty
         else
           if ObjTbl.mem nested_values repr then
@@ -308,14 +312,14 @@ module Make(O : OBJ)(EVP : EVALPATH with type valu = O.t) = struct
                 (tree_of_labeled_val_list 0 depth obj labeled_tys)
           | Tconstr(path, [ty_arg], _)
             when Path.same path Predef.path_list ->
-              if not (is_null obj) && O.is_block obj then
+              if is_real_block obj then
                 match check_depth depth obj ty with
                   Some x -> x
                 | None ->
                     let rec tree_of_conses tree_list depth obj ty_arg =
                       if !printer_steps < 0 || depth < 0 then
                         Oval_ellipsis :: tree_list
-                      else if not (is_null obj) && O.is_block obj then
+                      else if is_real_block obj then
                         let tree =
                           nest tree_of_val (depth - 1) (O.field obj 0) ty_arg
                         in
@@ -427,6 +431,8 @@ module Make(O : OBJ)(EVP : EVALPATH with type valu = O.t) = struct
                         ~loc:Location.none Positive path env
                     in
                     let constant, tag =
+                      (* CR dkalinichenko: the null case being represented
+                         by [-1] is hacky, but there's no simple fix. *)
                       if is_null obj then
                         true, -1
                       else if O.is_block obj then
@@ -436,6 +442,9 @@ module Make(O : OBJ)(EVP : EVALPATH with type valu = O.t) = struct
                     in
                     let {cd_id;cd_args;cd_res}, cstr_arg_jkinds =
                       try
+                        (* CR dkalinichenko: this is broken for unboxed variants:
+                           unless the tag of the inner value just happens to be 0,
+                           [Datarepr.find_constr_by_tag] will fail. *)
                         let {cstr_uid;cstr_arg_jkinds} =
                           Datarepr.find_constr_by_tag ~constant tag cstrs
                         in
