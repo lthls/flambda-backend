@@ -3265,25 +3265,20 @@ let combine_constructor value_kind loc arg pat_env pat_barrier cstr partial ctx 
               when not (Clflags.is_flambda2 ()) ->
                 transl_match_on_option value_kind arg loc
                   ~if_none:act1 ~if_some:act2
-            | 1, 0, [(_, act2)], [], Some act1 ->
+            | 1, 1, [], [(_, act2)], Some act1 ->
                 (* We need to handle this case separately to avoid
                    blowing up on just 1 constant constructor later. *)
                 transl_match_on_or_null value_kind arg loc
                   ~if_null:act1 ~if_this:act2
-            | n, 0, _, [], null ->
+            | _, _, _, _, Some _ ->
+                Misc.fatal_error "Matching.combine_constructor: Unexpected Null case"
+            | n, 0, _, [], None ->
                 (* The matched type defines constant constructors only.
                    (typically the constant cases are dense, so
                    call_switcher will generate a Lswitch, still one
                    instruction.) *)
-                let lambda1 =
-                  call_switcher value_kind loc fail_opt arg 0 (n - 1) consts
-                in
-                (match null with
-                | None -> lambda1
-                | Some act0 ->
-                  transl_match_on_or_null value_kind arg loc
-                    ~if_null:act0 ~if_this:lambda1)
-            | n, _, _, _, _ -> (
+                call_switcher value_kind loc fail_opt arg 0 (n - 1) consts
+            | n, _, _, _, None -> (
                 let act0 =
                   (* = Some act when all non-const constructors match to act *)
                   match (fail_opt, nonconsts) with
@@ -3295,50 +3290,42 @@ let combine_constructor value_kind loc arg pat_env pat_barrier cstr partial ctx 
                         None
                   | None, _ -> same_actions nonconsts
                 in
-                (* Handle non-null cases: *)
-                let lambda1 =
-                  match act0, consts with
-                  | Some act, [] ->
-                      (* This case only happens when matching with [Null]. *)
-                      act
-                  | Some act, _ :: _ ->
-                      (* This case deviates from our policy, by typically
-                        generating three bytecode instructions.
+                match act0, consts with
+                | Some act, [] ->
+                    (* This case only happens when matching with [Null]. *)
+                    act
+                | Some act, _ :: _ ->
+                    (* This case deviates from our policy, by typically
+                       generating three bytecode instructions.
 
-                        It can save a lot of bytecode space when matching
-                        on a type with many non-constant constructors,
-                        all sent to the same action. This pattern occurs
-                        several times in the compiler codebase
-                        (for example), due to code fragments such as the
-                        following:
+                       It can save a lot of bytecode space when matching
+                       on a type with many non-constant constructors,
+                       all sent to the same action. This pattern occurs
+                       several times in the compiler codebase
+                       (for example), due to code fragments such as the
+                       following:
 
-                            match token with SEMISEMI -> true | _ -> false
+                           match token with SEMISEMI -> true | _ -> false
 
-                        (The type of tokens has more than 120 constructors.)
-                        *)
-                      Lifthenelse
-                        ( Lprim (Pisint { variant_only = true }, [ arg ], loc),
-                          call_switcher value_kind loc fail_opt arg 0 (n - 1) consts,
-                          act, value_kind )
-                  | None, _ ->
-                      (* In the general case, emit a switch. *)
-                      let sw =
-                        { sw_numconsts = cstr.cstr_consts;
-                          sw_consts = consts;
-                          sw_numblocks = cstr.cstr_nonconsts;
-                          sw_blocks = nonconsts;
-                          sw_failaction = fail_opt
-                        }
-                      in
-                      let hs, sw = share_actions_sw value_kind sw in
-                      let sw = reintroduce_fail sw in
-                      hs (Lswitch (arg, sw, loc, value_kind))
-                in
-                (* Handle the [Null] case if present. *)
-                match null with
-                | None -> lambda1
-                | Some act0 -> transl_match_on_or_null value_kind arg loc
-                  ~if_null:act0 ~if_this:lambda1))
+                       (The type of tokens has more than 120 constructors.)
+                    *)
+                    Lifthenelse
+                      ( Lprim (Pisint { variant_only = true }, [ arg ], loc),
+                        call_switcher value_kind loc fail_opt arg 0 (n - 1) consts,
+                        act, value_kind )
+                | None, _ ->
+                    (* In the general case, emit a switch. *)
+                    let sw =
+                      { sw_numconsts = cstr.cstr_consts;
+                        sw_consts = consts;
+                        sw_numblocks = cstr.cstr_nonconsts;
+                        sw_blocks = nonconsts;
+                        sw_failaction = fail_opt
+                      }
+                    in
+                    let hs, sw = share_actions_sw value_kind sw in
+                    let sw = reintroduce_fail sw in
+                    hs (Lswitch (arg, sw, loc, value_kind))))
       in
       (lambda1, Jumps.union local_jumps total1)
 
