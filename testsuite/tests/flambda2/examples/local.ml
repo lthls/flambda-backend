@@ -39,8 +39,9 @@ let rec spans ~break_here l =
   match l with
   | [] -> []
   | _ ->
-    exclave_ (let span, rest = find_span ~break_here l [] in
-    rev_app span [] :: spans ~break_here rest)
+    exclave_ (
+      let span, rest = find_span ~break_here l [] in
+      rev_app span [] :: spans ~break_here rest)
 
 and find_span ~break_here l (acc : _ @ local) =
   exclave_
